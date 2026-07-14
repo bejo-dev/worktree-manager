@@ -13,7 +13,7 @@ import (
 const usage = `worktree-manager - manage a reusable pool of git worktrees
 
 Usage:
-  worktree-manager acquire <repo-path> [task-id]
+  worktree-manager acquire [repo-path] [task-id]
   worktree-manager release <worktree-path>
   worktree-manager list
   worktree-manager verify
@@ -39,16 +39,19 @@ func main() {
 	rest := args[1:]
 
 	switch cmd {
-	case "acquire":
-		if len(rest) < 1 || len(rest) > 2 {
-			fmt.Fprintln(os.Stderr, "usage: worktree-manager acquire <repo-path> [task-id]")
-			os.Exit(2)
-		}
-		repoPath := rest[0]
-		taskID := ""
-		if len(rest) == 2 {
-			taskID = rest[1]
-		}
+  case "acquire":
+  	if len(rest) > 2 {
+  		fmt.Fprintln(os.Stderr, "usage: worktree-manager acquire [repo-path] [task-id]")
+  		os.Exit(2)
+  	}
+  	repoPath := "."
+  	if len(rest) >= 1 {
+  		repoPath = rest[0]
+  	}
+  	taskID := ""
+  	if len(rest) == 2 {
+  		taskID = rest[1]
+  	}
 		database, err := db.Open(db.DefaultDBPath())
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "error: open db: %v\n", err)

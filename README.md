@@ -7,9 +7,10 @@ The agent workflow:
 
 1. Before starting work:
    ```
-   worktree-manager acquire <repo-path> [task-id]
+   worktree-manager acquire [repo-path] [task-id]
    ```
-   Prints the absolute path of a ready-to-use worktree to stdout.
+   Prints the absolute path of a ready-to-use worktree to stdout. If
+   `repo-path` is omitted, the current working directory is used.
 2. The agent works only inside that returned directory.
 3. After the task is complete:
    ```
@@ -61,10 +62,11 @@ no CGO or system SQLite is required).
 
 ## Commands
 
-### `acquire <repo-path> [task-id]`
+### `acquire [repo-path] [task-id]`
 
-Returns a ready-to-use worktree for the given repository. Output (stdout) is
-only the absolute worktree path, so it can be captured by scripts:
+Returns a ready-to-use worktree for the given repository. If `repo-path` is
+omitted, the current working directory is used. Output (stdout) is only the
+absolute worktree path, so it can be captured by scripts:
 
 ```sh
 WT=$(worktree-manager acquire /path/to/repo my-task-123)
