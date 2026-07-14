@@ -7,10 +7,13 @@ The agent workflow:
 
 1. Before starting work:
    ```
-   worktree-manager acquire [repo-path] [task-id]
+   worktree-manager acquire [task-id] [repo-path]
    ```
    Prints the absolute path of a ready-to-use worktree to stdout. If
-   `repo-path` is omitted, the current working directory is used.
+   `repo-path` is omitted, the current working directory is used. The
+   `task-id` is optional metadata (typically a branch-name-like label such
+   as `add-unit-menu`) recorded against the worktree so `list`/`verify` can
+   show which task holds each one.
 2. The agent works only inside that returned directory.
 3. After the task is complete:
    ```
@@ -62,15 +65,52 @@ no CGO or system SQLite is required).
 
 ## Commands
 
-### `acquire [repo-path] [task-id]`
+### `acquire [task-id] [repo-path]`
 
 Returns a ready-to-use worktree for the given repository. If `repo-path` is
 omitted, the current working directory is used. Output (stdout) is only the
 absolute worktree path, so it can be captured by scripts:
 
 ```sh
-WT=$(worktree-manager acquire /path/to/repo my-task-123)
+WT=$(worktree-manager acquire add-unit-menu)
 ```
+
+Arguments are positional (task-id first, then repo-path) and may also be passed
+as flags so they can appear in any order:
+
+| Flag            | Positional slot | Meaning                                  |
+| --------------- | --------------- | ---------------------------------------- |
+| `-t, --task`    | `args[0]`       | task id (e.g. `add-unit-menu`)           |
+| `-r, --repo`    | `args[1]`       | repository path (default: current dir)  |
+
+It is an error to specify the same value via both a flag and a positional
+argument.
+
+Examples:
+
+```sh
+# cwd repo, with a task id (the common case)
+worktree-manager acquire add-unit-menu
+
+# positional: task + explicit repo
+worktree-manager acquire fix-double-layering /path/to/repo
+
+# flags, any order
+worktree-manager acquire -t improve-menu-order -r /path/to/repo
+worktree-manager acquire -r /path/to/repo -t improve-menu-order
+
+# explicit repo, no task
+worktree-manager acquire -r /path/to/repo
+
+# cwd repo, no task
+worktree-manager acquire
+```
+
+The `task-id` is optional metadata recorded against the worktree so `list`
+and `verify` can show which task holds each one (useful for an orchestrator
+or when eyeballing `list`). It is not required for allocation correctness -
+the `ALLOCATED` status itself prevents double-allocation, regardless of
+task id.
 
 Behavior:
 

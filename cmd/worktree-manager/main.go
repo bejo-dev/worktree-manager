@@ -13,7 +13,8 @@ import (
 const usage = `worktree-manager - manage a reusable pool of git worktrees
 
 Usage:
-  worktree-manager acquire [repo-path] [task-id]
+  worktree-manager acquire [task-id] [repo-path]
+  worktree-manager acquire -t <task-id> -r <repo-path>
   worktree-manager release <worktree-path>
   worktree-manager list
   worktree-manager verify
@@ -23,6 +24,13 @@ Commands:
   release   Release a worktree back to the pool.
   list      List all managed worktrees.
   verify    Verify consistency of registered worktrees with git state.
+
+Acquire options:
+  -t, --task <task-id>   Task id to label the worktree (e.g. add-unit-menu).
+  -r, --repo <repo-path> Repository path. Defaults to the current directory.
+
+  task-id and repo-path may also be passed positionally (in that order). It is
+  an error to specify the same value via both a flag and a positional argument.
 `
 
 func main() {
@@ -39,19 +47,13 @@ func main() {
 	rest := args[1:]
 
 	switch cmd {
-  case "acquire":
-  	if len(rest) > 2 {
-  		fmt.Fprintln(os.Stderr, "usage: worktree-manager acquire [repo-path] [task-id]")
-  		os.Exit(2)
-  	}
-  	repoPath := "."
-  	if len(rest) >= 1 {
-  		repoPath = rest[0]
-  	}
-  	taskID := ""
-  	if len(rest) == 2 {
-  		taskID = rest[1]
-  	}
+	case "acquire":
+		repoPath, taskID, err := parseAcquireArgs(rest)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			fmt.Fprintln(os.Stderr, "usage: worktree-manager acquire [task-id] [repo-path]")
+			os.Exit(2)
+		}
 		database, err := db.Open(db.DefaultDBPath())
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "error: open db: %v\n", err)
@@ -157,4 +159,78 @@ func main() {
 		fmt.Fprint(os.Stderr, usage)
 		os.Exit(2)
 	}
+}
+
+// parseAcquireArgs parses the arguments for the acquire command. It supports
+// both flags (-t/--task, -r/--repo) and positional arguments, interpreted as
+// task-id first, then repo-path. It is an error to specify the same value via
+// both a flag and a positional argument.
+func parseAcquireArgs(rest []string) (repoPath, taskID string, err error) {
+	fs := flag.NewFlagSet("acquire", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	fs.Usage = func() {
+		fmt.Fprintln(os.Stderr, "usage: worktree-manager acquire [task-id] [repo-path]")
+		fmt.Fprintln(os.Stderr, "  -t, --task <task-id>   task id (e.g. add-unit-menu)")
+		fmt.Fprintln(os.Stderr, "  -r, --repo <repo-path> repository path (default: current directory)")
+	}
+	var taskFlag, repoFlag string
+	var taskSet, repoSet bool
+	fs.Var(&stringValue{v: &taskFlag, set: &taskSet}, "t", "task id")
+	fs.Var(&stringValue{v: &taskFlag, set: &taskSet}, "task", "task id")
+	fs.Var(&stringValue{v: &repoFlag, set: &repoSet}, "r", "repository path")
+	fs.Var(&stringValue{v: &repoFlag, set: &repoSet}, "repo", "repository path")
+	if err := fs.Parse(rest); err != nil {
+		return "", "", err
+	}
+	args := fs.Args()
+	if len(args) > 2 {
+		return "", "", fmt.Errorf("too many positional arguments: got %d, want at most 2", len(args))
+	}
+
+	taskID = ""
+	repoPath = "."
+
+	// Positional interpretation: args[0] = task-id, args[1] = repo-path.
+	if len(args) >= 1 {
+		taskID = args[0]
+	}
+	if len(args) >= 2 {
+		repoPath = args[1]
+	}
+
+	// Flag overrides, but conflict if the same slot is also provided positionally.
+	if taskSet {
+		if len(args) >= 1 {
+			return "", "", fmt.Errorf("task-id specified via both -t flag and positional argument")
+		}
+		taskID = taskFlag
+	}
+	if repoSet {
+		if len(args) >= 2 {
+			return "", "", fmt.Errorf("repo-path specified via both -r flag and positional argument")
+		}
+		repoPath = repoFlag
+	}
+
+	return repoPath, taskID, nil
+}
+
+// stringValue is a flag.Value that records whether it was set. This lets us
+// distinguish "flag not provided" from "flag provided with empty string".
+type stringValue struct {
+	v   *string
+	set *bool
+}
+
+func (s *stringValue) String() string {
+	if s.v == nil {
+		return ""
+	}
+	return *s.v
+}
+
+func (s *stringValue) Set(val string) error {
+	*s.v = val
+	*s.set = true
+	return nil
 }
