@@ -22,7 +22,8 @@ The agent workflow:
 
 The tool owns all worktree lifecycle logic. State is kept in a local SQLite
 database at `~/.worktree-manager/state.db`, so the agent never has to track
-worktree state itself. All operations are deterministic.
+worktree state itself. When no task ID is supplied, a short random three-word
+name is generated and used for the task label, branch, and worktree folder.
 
 ## Install
 
@@ -118,8 +119,9 @@ Behavior:
 2. Detect the default branch (`main`, `master`, ...).
 3. Find a `FREE` worktree for that repository, preferring the
    least-recently-used one.
-4. If none exists, create a new git worktree with a deterministic reusable
-   branch and register it.
+4. If none exists, create a new git worktree with a reusable branch and
+   register it. With no task ID, the new branch and folder use a generated
+   three-word name such as `amber-otter-glow`.
 5. Before returning:
    - `git fetch origin`
    - reset the worktree to the latest default branch (`origin/<default>`)

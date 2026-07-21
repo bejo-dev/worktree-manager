@@ -202,6 +202,19 @@ func TestAcquireNoTaskID(t *testing.T) {
 	if wt == nil || wt.Status != db.StatusAllocated {
 		t.Fatalf("expected ALLOCATED, got %+v", wt)
 	}
+	if wt.TaskID == "" {
+		t.Fatal("expected generated task name")
+	}
+	parts := strings.Split(wt.TaskID, "-")
+	if len(parts) != 3 {
+		t.Fatalf("expected three-word generated name, got %q", wt.TaskID)
+	}
+	if filepath.Base(res.WorktreePath) != wt.TaskID {
+		t.Fatalf("expected folder name %q, got %q", wt.TaskID, filepath.Base(res.WorktreePath))
+	}
+	if wt.BranchName != "wm/"+wt.TaskID {
+		t.Fatalf("expected generated branch name, got %q", wt.BranchName)
+	}
 }
 
 func TestList(t *testing.T) {

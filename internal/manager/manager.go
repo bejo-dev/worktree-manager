@@ -15,8 +15,8 @@ import (
 
 // Manager coordinates database and git operations.
 type Manager struct {
-	db     *db.DB
-	logw   io.Writer
+	db   *db.DB
+	logw io.Writer
 }
 
 // New creates a new Manager.
@@ -33,6 +33,16 @@ type AcquireResult struct {
 
 // Acquire returns a ready-to-use worktree for the given repo path.
 func (m *Manager) Acquire(repoPath string, taskID string) (*AcquireResult, error) {
+	generatedName := false
+	if taskID == "" {
+		var err error
+		taskID, err = randomWorktreeName()
+		if err != nil {
+			return nil, err
+		}
+		generatedName = true
+	}
+
 	repo, err := gitops.Resolve(repoPath)
 	if err != nil {
 		return nil, fmt.Errorf("resolve repo: %w", err)
@@ -72,7 +82,7 @@ func (m *Manager) Acquire(repoPath string, taskID string) (*AcquireResult, error
 	created := false
 	if wt == nil {
 		// Create a new worktree.
-		wt, err = m.createWorktree(r, defaultBranch)
+		wt, err = m.createWorktree(r, defaultBranch, taskID, generatedName)
 		if err != nil {
 			return nil, err
 		}
@@ -174,13 +184,13 @@ func (m *Manager) Release(worktreePath string) error {
 
 // ListResult is a flat view used by the list command.
 type ListResult struct {
-	Repository    string
-	DefaultBranch string
-	Path          string
-	BranchName    string
-	Status        string
-	TaskID        string
-	LastUsed      time.Time
+	Repository     string
+	DefaultBranch  string
+	Path           string
+	BranchName     string
+	Status         string
+	TaskID         string
+	LastUsed       time.Time
 	LastBaseCommit string
 }
 
@@ -267,11 +277,10 @@ func (m *Manager) Verify() ([]VerifyResult, error) {
 	return results, nil
 }
 
-// createWorktree creates a new git worktree and registers it. The branch name
-// is derived deterministically from a monotonically increasing slot for the
-// repository, so it is stable across acquire/release cycles but unique per
-// worktree slot.
-func (m *Manager) createWorktree(r *db.Repository, defaultBranch string) (*db.Worktree, error) {
+// createWorktree creates a new git worktree and registers it. Explicit task
+// IDs use deterministic pool names; generated task IDs use the generated name
+// for both the branch and folder.
+func (m *Manager) createWorktree(r *db.Repository, defaultBranch, taskID string, generatedName bool) (*db.Worktree, error) {
 	tx, err := m.db.BeginTx()
 	if err != nil {
 		return nil, err
@@ -282,7 +291,12 @@ func (m *Manager) createWorktree(r *db.Repository, defaultBranch string) (*db.Wo
 		return nil, fmt.Errorf("next slot: %w", err)
 	}
 	branchName := fmt.Sprintf("wm/pool-%d-%d", r.ID, slot)
-	worktreePath := m.worktreePath(r, branchName)
+	worktreeName := branchName
+	if generatedName {
+		branchName = "wm/" + taskID
+		worktreeName = taskID
+	}
+	worktreePath := filepath.Join(r.RootPath, ".worktree-manager", worktreeName)
 	id, err := m.db.InsertWorktree(tx, r.ID, worktreePath, branchName, db.StatusFree)
 	if err != nil {
 		return nil, fmt.Errorf("insert worktree: %w", err)
@@ -380,4 +394,3 @@ func (m *Manager) logf(format string, args ...any) {
 	}
 	fmt.Fprintf(m.logw, format+"\n", args...)
 }
-

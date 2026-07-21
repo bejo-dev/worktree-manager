@@ -10,8 +10,10 @@ Run this from anywhere inside the target repository:
 worktree-manager acquire <task-id>
 ```
 
-- `<task-id>` is a short, branch-name-like label for the work (e.g.
+- `<task-id>` is an optional short, branch-name-like label for the work (e.g.
   `add-unit-menu`, `fix-double-layering`, `improve-menu-order`).
+- If omitted, the tool generates a random three-word name and uses it for the
+  task label, branch, and worktree folder.
 - The current working directory is used as the repository path.
 - The command prints **only** the absolute path of the ready-to-use worktree
   to stdout. Capture it:
