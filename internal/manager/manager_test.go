@@ -96,6 +96,26 @@ func TestAcquireCreatesWorktree(t *testing.T) {
 	}
 }
 
+func TestAcquireBranchNameAllowsSlash(t *testing.T) {
+	repo := setupRepo(t)
+	d := newManagerDB(t)
+	m := New(d, os.Stderr)
+
+	res, err := m.Acquire(repo, "BenE/add-unit-menu")
+	if err != nil {
+		t.Fatalf("Acquire: %v", err)
+	}
+	if res.BranchName != "BenE/add-unit-menu" {
+		t.Fatalf("expected branch name to be preserved, got %q", res.BranchName)
+	}
+	if !strings.Contains(res.WorktreePath, filepath.Join(".worktree-manager", "wm", "pool-")) {
+		t.Fatalf("expected pool folder, got %q", res.WorktreePath)
+	}
+	if current := strings.TrimSpace(run(t, res.WorktreePath, "git", "branch", "--show-current")); current != res.BranchName {
+		t.Fatalf("expected checked-out branch %q, got %q", res.BranchName, current)
+	}
+}
+
 func TestAcquireReusesFreeWorktree(t *testing.T) {
 	repo := setupRepo(t)
 	d := newManagerDB(t)
@@ -116,7 +136,7 @@ func TestAcquireReusesFreeWorktree(t *testing.T) {
 		t.Fatalf("expected reuse of same worktree: %s != %s", r1.WorktreePath, r2.WorktreePath)
 	}
 	if r2.BranchName != "task-B" {
-		t.Fatalf("expected branch to follow task id, got %q", r2.BranchName)
+		t.Fatalf("expected branch to follow branch name, got %q", r2.BranchName)
 	}
 	if r2.Created {
 		t.Fatal("expected created=false on reuse")
@@ -224,8 +244,8 @@ func TestAcquireNoTaskID(t *testing.T) {
 			t.Fatalf("word %q is not from pool %d", word, i+1)
 		}
 	}
-	if filepath.Base(res.WorktreePath) != wt.TaskID {
-		t.Fatalf("expected folder name %q, got %q", wt.TaskID, filepath.Base(res.WorktreePath))
+	if !strings.Contains(res.WorktreePath, filepath.Join(".worktree-manager", "wm", "pool-")) {
+		t.Fatalf("expected pool folder, got %q", res.WorktreePath)
 	}
 	if wt.BranchName != wt.TaskID {
 		t.Fatalf("expected generated branch name, got %q", wt.BranchName)
@@ -292,10 +312,10 @@ func TestAcquireBranchFollowsTaskID(t *testing.T) {
 	r2, _ := m.Acquire(repo, "task-2")
 
 	if r1.BranchName != "task-1" {
-		t.Fatalf("expected first branch to follow task id, got %q", r1.BranchName)
+		t.Fatalf("expected first branch to follow branch name, got %q", r1.BranchName)
 	}
 	if r2.BranchName != "task-2" {
-		t.Fatalf("expected reused branch to follow task id, got %q", r2.BranchName)
+		t.Fatalf("expected reused branch to follow branch name, got %q", r2.BranchName)
 	}
 }
 

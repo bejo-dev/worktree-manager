@@ -7,19 +7,18 @@ Manage a reusable pool of git worktrees for autonomous coding agents.
 Run this from anywhere inside the target repository:
 
 ```
-worktree-manager acquire <task-id>
+worktree-manager acquire [branch-name]
 ```
 
-- `<task-id>` is an optional short, branch-name-like label for the work (e.g.
-  `add-unit-menu`, `fix-double-layering`, `improve-menu-order`).
+- `<branch-name>` is optional (e.g. `BenE/add-unit-menu`).
 - If omitted, the tool generates a random three-word name and uses it for the
-  task label, branch, and worktree folder.
+  branch and internal ownership label.
 - The current working directory is used as the repository path.
 - The command prints **only** the absolute path of the ready-to-use worktree
   to stdout. Capture it:
 
   ```sh
-  WT=$(worktree-manager acquire add-unit-menu)
+  WT=$(worktree-manager acquire BenE/add-unit-menu)
   ```
 
 - All other output goes to stderr; nothing else is on stdout.
@@ -29,14 +28,14 @@ main checkout. The tool has already:
 - fetched `origin`,
 - reset the worktree to the latest default branch,
 - removed untracked files,
-- marked it `ALLOCATED` to your task id.
+- marked it `ALLOCATED` to your branch name.
 
 ### Optional: explicit repo path
 
 If you are not running from inside the repo, pass `-r`:
 
 ```
-worktree-manager acquire -t add-unit-menu -r /path/to/repo
+worktree-manager acquire -b BenE/add-unit-menu -r /path/to/repo
 ```
 
 Flags and positionals can be mixed, but you may not give the same value twice
@@ -54,7 +53,7 @@ The tool will:
 - fetch `origin`,
 - reset the worktree to `origin/<default-branch>`,
 - `git clean -xfd` (remove untracked files),
-- clear task ownership,
+- clear branch ownership,
 - mark it `FREE`.
 
 Run this once you have committed/pushed your work. Anything left uncommitted
