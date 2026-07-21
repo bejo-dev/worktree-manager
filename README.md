@@ -67,7 +67,7 @@ no CGO or system SQLite is required).
 
 ### `-v, --version`
 
-Prints the worktree-manager version (`2.0.0`).
+Prints the worktree-manager version (`2.0.1`).
 
 ### `-d, --database <path>`
 
@@ -240,6 +240,11 @@ branch name.
 - Logs go to stderr; stdout contains only machine-readable output.
 
 ## Development
+
+Every feature or fix included in a pull request must bump the CLI version in
+`cmd/worktree-manager/main.go` and the matching version documented above.
+Use semantic versioning: patch for fixes, minor for new backwards-compatible
+features, and major for breaking changes.
 
 ```sh
 go test ./...          # run all unit + integration tests
