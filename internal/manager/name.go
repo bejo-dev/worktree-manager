@@ -5,11 +5,12 @@ import (
 	"fmt"
 )
 
-// These deliberately small pools keep generated names short and easy to say.
+// The pools keep generated names short and easy to say: an -ing verb, an
+// adjective, and a noun.
 var generatedNamePools = [3][]string{
-	{"amber", "bright", "calm", "clever", "cosmic", "gentle", "swift", "quiet"},
-	{"badger", "falcon", "fox", "koala", "otter", "panda", "raven", "tiger"},
-	{"bloom", "drift", "glow", "leap", "roam", "spark", "stride", "wave"},
+	{"balancing", "blazing", "braving", "climbing", "dancing", "drifting", "driving", "flying", "gliding", "growing", "hiking", "jogging", "leaping", "marching", "rolling", "running", "sailing", "soaring", "spinning", "trekking", "wandering", "whistling", "winning", "zooming"},
+	{"amber", "bright", "calm", "clever", "cosmic", "crisp", "daring", "eager", "gentle", "golden", "grand", "happy", "jolly", "lively", "mellow", "nimble", "playful", "quiet", "rapid", "shiny", "silent", "steady", "swift", "vivid"},
+	{"badger", "falcon", "fox", "koala", "lion", "moon", "otter", "panda", "pebble", "raven", "river", "robin", "spark", "star", "stone", "sunset", "tiger", "trail", "unicorn", "valley", "willow", "wind", "wolf", "yarrow"},
 }
 
 // randomWorktreeName returns one word from each of the three name pools.

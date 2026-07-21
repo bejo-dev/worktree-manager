@@ -209,6 +209,18 @@ func TestAcquireNoTaskID(t *testing.T) {
 	if len(parts) != 3 {
 		t.Fatalf("expected three-word generated name, got %q", wt.TaskID)
 	}
+	for i, word := range parts {
+		found := false
+		for _, candidate := range generatedNamePools[i] {
+			if word == candidate {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("word %q is not from pool %d", word, i+1)
+		}
+	}
 	if filepath.Base(res.WorktreePath) != wt.TaskID {
 		t.Fatalf("expected folder name %q, got %q", wt.TaskID, filepath.Base(res.WorktreePath))
 	}
