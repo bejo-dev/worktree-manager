@@ -283,6 +283,13 @@ func (d *DB) UpdateWorktreePathBranch(tx *sql.Tx, id int64, path, branchName str
 	return err
 }
 
+// UpdateWorktreeIdentity updates the branch and internal ownership label.
+func (d *DB) UpdateWorktreeIdentity(tx *sql.Tx, id int64, branchName, owner string) error {
+	_, err := tx.Exec(`UPDATE worktrees SET branch_name = ?, task_id = ? WHERE id = ?`,
+		branchName, nullable(owner), id)
+	return err
+}
+
 // NextWorktreeSlot returns the next slot number for a repository. It is the
 // maximum existing worktree id for that repository plus one (or 1 if none).
 // Call inside a transaction for consistency.

@@ -72,6 +72,7 @@ in the worktree will be discarded on release.
 
 - `worktree-manager list` - show all managed worktrees and their status.
 - `worktree-manager verify` - check registered worktrees match git state.
+- `worktree-manager doctor` - repair state created by older versions.
 
 ## State
 

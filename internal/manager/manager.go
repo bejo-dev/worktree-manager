@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/bejo-dev/worktree-manager/internal/db"
@@ -254,6 +255,81 @@ type VerifyResult struct {
 	Exists     bool
 	Clean      bool
 	Issues     []string
+}
+
+// DoctorResult summarizes repairs made to registered worktrees.
+type DoctorResult struct {
+	Checked  int
+	Repaired int
+	Issues   []string
+}
+
+// Doctor repairs legacy branch ownership records created before branch names
+// became independent of pool folder names. It also reconciles the database
+// with the branch currently checked out in each worktree.
+func (m *Manager) Doctor() (*DoctorResult, error) {
+	repos, err := m.db.ListAllRepositories()
+	if err != nil {
+		return nil, err
+	}
+	result := &DoctorResult{}
+	for _, r := range repos {
+		gr := &gitops.Repo{Root: r.RootPath}
+		wts, err := m.db.ListWorktreesByRepo(r.ID)
+		if err != nil {
+			return nil, err
+		}
+		for _, wt := range wts {
+			result.Checked++
+			actual, err := gr.CurrentBranch(wt.Path)
+			if err != nil {
+				result.Issues = append(result.Issues, fmt.Sprintf("%s: read branch: %v", wt.Path, err))
+				continue
+			}
+
+			desired := wt.BranchName
+			owner := wt.TaskID
+			// Before the breaking change, an allocated worktree recorded the
+			// task separately while its branch remained wm/pool-... .
+			if wt.Status == db.StatusAllocated && owner != "" && strings.HasPrefix(wt.BranchName, "wm/") && wt.BranchName != owner {
+				desired = owner
+			}
+			// Older taskless allocations had no owner at all; give them the
+			// same generated ownership that a new acquire would provide.
+			if wt.Status == db.StatusAllocated && desired == "" {
+				desired, err = randomWorktreeName()
+				if err != nil {
+					return nil, err
+				}
+				owner = desired
+			}
+
+			if desired == "" {
+				continue
+			}
+			if actual != desired {
+				if err := gr.RenameWorktreeBranch(wt.Path, desired); err != nil {
+					result.Issues = append(result.Issues, fmt.Sprintf("%s: rename %q to %q: %v", wt.Path, actual, desired, err))
+					continue
+				}
+			}
+			if wt.BranchName != desired || wt.TaskID != owner {
+				tx, err := m.db.BeginTx()
+				if err != nil {
+					return nil, err
+				}
+				if err := m.db.UpdateWorktreeIdentity(tx, wt.ID, desired, owner); err != nil {
+					_ = tx.Rollback()
+					return nil, err
+				}
+				if err := tx.Commit(); err != nil {
+					return nil, err
+				}
+				result.Repaired++
+			}
+		}
+	}
+	return result, nil
 }
 
 // Verify checks that all registered worktrees are consistent with the actual

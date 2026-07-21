@@ -116,6 +116,51 @@ func TestAcquireBranchNameAllowsSlash(t *testing.T) {
 	}
 }
 
+func TestDoctorRepairsLegacyBranchName(t *testing.T) {
+	repo := setupRepo(t)
+	d := newManagerDB(t)
+	m := New(d, os.Stderr)
+
+	res, err := m.Acquire(repo, "BenE/add-unit-menu")
+	if err != nil {
+		t.Fatalf("Acquire: %v", err)
+	}
+	wt, err := d.GetWorktreeByPath(res.WorktreePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyBranch := "wm/pool-legacy"
+	run(t, wt.Path, "git", "branch", "-M", legacyBranch)
+	tx, err := d.BeginTx()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := d.UpdateWorktreeIdentity(tx, wt.ID, legacyBranch, "BenE/add-unit-menu"); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.SetWorktreeStatus(tx, wt.ID, db.StatusAllocated, "BenE/add-unit-menu"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+
+	report, err := m.Doctor()
+	if err != nil {
+		t.Fatalf("Doctor: %v", err)
+	}
+	if report.Checked != 1 || report.Repaired != 1 || len(report.Issues) != 0 {
+		t.Fatalf("unexpected doctor report: %+v", report)
+	}
+	updated, _ := d.GetWorktreeByPath(res.WorktreePath)
+	if updated.BranchName != "BenE/add-unit-menu" {
+		t.Fatalf("expected migrated branch in database, got %q", updated.BranchName)
+	}
+	if current := strings.TrimSpace(run(t, wt.Path, "git", "branch", "--show-current")); current != "BenE/add-unit-menu" {
+		t.Fatalf("expected migrated Git branch, got %q", current)
+	}
+}
+
 func TestAcquireReusesFreeWorktree(t *testing.T) {
 	repo := setupRepo(t)
 	d := newManagerDB(t)
