@@ -87,6 +87,25 @@ func (m *Manager) Acquire(repoPath string, taskID string) (*AcquireResult, error
 			return nil, err
 		}
 		created = true
+	} else if wt.BranchName != taskID {
+		// A free worktree keeps its folder, but its checked-out branch follows
+		// the task that is acquiring it.
+		if err := (&gitops.Repo{Root: r.RootPath}).RenameWorktreeBranch(wt.Path, taskID); err != nil {
+			m.markBroken(wt.ID)
+			return nil, fmt.Errorf("rename worktree branch: %w", err)
+		}
+		txRename, err := m.db.BeginTx()
+		if err != nil {
+			return nil, err
+		}
+		defer txRename.Rollback()
+		if err := m.db.UpdateWorktreePathBranch(txRename, wt.ID, wt.Path, taskID); err != nil {
+			return nil, fmt.Errorf("record worktree branch: %w", err)
+		}
+		if err := txRename.Commit(); err != nil {
+			return nil, err
+		}
+		wt.BranchName = taskID
 	}
 
 	gr := &gitops.Repo{Root: r.RootPath}
@@ -290,11 +309,12 @@ func (m *Manager) createWorktree(r *db.Repository, defaultBranch, taskID string,
 	if err != nil {
 		return nil, fmt.Errorf("next slot: %w", err)
 	}
-	branchName := fmt.Sprintf("wm/pool-%d-%d", r.ID, slot)
+	branchName := taskID
 	worktreeName := branchName
 	if generatedName {
-		branchName = "wm/" + taskID
 		worktreeName = taskID
+	} else {
+		worktreeName = fmt.Sprintf("wm/pool-%d-%d", r.ID, slot)
 	}
 	worktreePath := filepath.Join(r.RootPath, ".worktree-manager", worktreeName)
 	id, err := m.db.InsertWorktree(tx, r.ID, worktreePath, branchName, db.StatusFree)

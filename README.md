@@ -121,7 +121,8 @@ Behavior:
    least-recently-used one.
 4. If none exists, create a new git worktree with a reusable branch and
    register it. With no task ID, the new branch and folder use a generated
-   three-word name such as `amber-otter-glow`.
+   three-word name such as `soaring-quiet-fox`; that effective task ID is also
+   used as the branch name.
 5. Before returning:
    - `git fetch origin`
    - reset the worktree to the latest default branch (`origin/<default>`)
@@ -191,10 +192,11 @@ worktrees (
 );
 ```
 
-Worktrees are created under `<repo>/.worktree-manager/wm/pool-<repo>-<slot>`.
-Each worktree owns a stable branch (`wm/pool-<repo>-<slot>`) that is reused
-across acquire/release cycles, so the same worktree keeps the same branch over
-time.
+Worktrees for explicit task IDs are created under
+`<repo>/.worktree-manager/wm/pool-<repo>-<slot>`. Worktrees created for a
+generated task ID use that generated name as their folder. In both cases, the
+checked-out branch is named exactly after the effective task ID; when a free
+worktree is reused, its branch is renamed to the new task ID.
 
 ## Guarantees
 
