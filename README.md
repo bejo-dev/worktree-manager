@@ -65,6 +65,10 @@ no CGO or system SQLite is required).
 
 ## Commands
 
+### `-v, --version`
+
+Prints the worktree-manager version (`2.0.0`).
+
 ### `acquire [branch-name] [repo-path]`
 
 Returns a ready-to-use worktree for the given repository. If `repo-path` is
@@ -159,6 +163,13 @@ Verifies that every registered worktree is consistent with the actual git
 state (worktree exists on disk, registered in `git worktree list`, status is
 sane). Issues are printed to stderr; the command exits non-zero if any
 issues are found.
+
+### `doctor`
+
+Repairs state created by older versions after the branch-name change. It
+reconciles recorded branches with Git, migrates legacy `wm/...` branches to
+their recorded branch names, and generates names for older taskless allocated
+worktrees. It reports any worktree it could not repair and exits non-zero.
 
 ## State
 

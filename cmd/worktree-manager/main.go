@@ -10,6 +10,8 @@ import (
 	"github.com/bejo-dev/worktree-manager/internal/manager"
 )
 
+const version = "2.0.0"
+
 const usage = `worktree-manager - manage a reusable pool of git worktrees
 
 Usage:
@@ -18,12 +20,14 @@ Usage:
   worktree-manager release <worktree-path>
   worktree-manager list
   worktree-manager verify
+  worktree-manager doctor
 
 Commands:
   acquire   Acquire a ready-to-use worktree. Prints the absolute path to stdout.
   release   Release a worktree back to the pool.
   list      List all managed worktrees.
   verify    Verify consistency of registered worktrees with git state.
+  doctor    Repair legacy branch and ownership records.
 
 Acquire options:
   -b, --branch <name>    Branch name (e.g. BenE/add-unit-menu).
@@ -34,8 +38,15 @@ Acquire options:
 `
 
 func main() {
+	var showVersion bool
+	flag.BoolVar(&showVersion, "v", false, "show version")
+	flag.BoolVar(&showVersion, "version", false, "show version")
 	flag.Usage = func() { fmt.Fprint(os.Stderr, usage) }
 	flag.Parse()
+	if showVersion {
+		fmt.Println(version)
+		return
+	}
 
 	args := flag.Args()
 	if len(args) == 0 {
@@ -148,6 +159,32 @@ func main() {
 		}
 		w.Flush()
 		if !ok {
+			os.Exit(1)
+		}
+
+	case "doctor":
+		if len(rest) != 0 {
+			fmt.Fprintln(os.Stderr, "usage: worktree-manager doctor")
+			os.Exit(2)
+		}
+		database, err := db.Open(db.DefaultDBPath())
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: open db: %v\n", err)
+			os.Exit(1)
+		}
+		defer database.Close()
+
+		m := manager.New(database, os.Stderr)
+		report, err := m.Doctor()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+		for _, issue := range report.Issues {
+			fmt.Fprintf(os.Stderr, "issue: %s\n", issue)
+		}
+		fmt.Fprintf(os.Stderr, "doctor: checked %d, repaired %d, issues %d\n", report.Checked, report.Repaired, len(report.Issues))
+		if len(report.Issues) > 0 {
 			os.Exit(1)
 		}
 

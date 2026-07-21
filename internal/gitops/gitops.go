@@ -103,6 +103,15 @@ func (r *Repo) RenameWorktreeBranch(path, branchName string) error {
 	return err
 }
 
+// CurrentBranch returns the branch checked out at path.
+func (r *Repo) CurrentBranch(path string) (string, error) {
+	out, err := runGit(path, "branch", "--show-current")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(out), nil
+}
+
 // RemoveWorktree removes a git worktree by path.
 func (r *Repo) RemoveWorktree(path string, force bool) error {
 	args := []string{"worktree", "remove"}
