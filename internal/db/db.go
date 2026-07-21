@@ -206,6 +206,20 @@ func (d *DB) GetWorktreeByPath(path string) (*Worktree, error) {
 	return w, nil
 }
 
+// FindWorktreeByBranch returns a worktree currently using branchName.
+func (d *DB) FindWorktreeByBranch(repoID int64, branchName string) (*Worktree, error) {
+	row := d.conn.QueryRow(`SELECT id, repository_id, path, branch_name, status, task_id, last_used, last_base_commit
+		FROM worktrees WHERE repository_id = ? AND branch_name = ? LIMIT 1`, repoID, branchName)
+	w, err := scanWorktree(row)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return w, nil
+}
+
 // GetWorktree returns a worktree by id.
 func (d *DB) GetWorktree(id int64) (*Worktree, error) {
 	row := d.conn.QueryRow(`SELECT id, repository_id, path, branch_name, status, task_id, last_used, last_base_commit

@@ -208,6 +208,41 @@ func TestAcquireNeverAllocatesSameWorktreeTwice(t *testing.T) {
 	}
 }
 
+func TestReleaseAdoptsWorktreeFromAnotherDatabase(t *testing.T) {
+	repo := setupRepo(t)
+	first := newManagerDB(t)
+	created, err := New(first, os.Stderr).Acquire(repo, "cross-db-task")
+	if err != nil {
+		t.Fatalf("Acquire: %v", err)
+	}
+
+	second := newManagerDB(t)
+	if err := New(second, os.Stderr).Release(created.WorktreePath); err != nil {
+		t.Fatalf("Release from another database: %v", err)
+	}
+	wt, err := second.GetWorktreeByPath(created.WorktreePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if wt == nil || wt.Status != db.StatusFree {
+		t.Fatalf("expected adopted worktree to be FREE, got %+v", wt)
+	}
+}
+
+func TestAcquireRejectsBranchAlreadyUsedByGitWorktree(t *testing.T) {
+	repo := setupRepo(t)
+	first := newManagerDB(t)
+	if _, err := New(first, os.Stderr).Acquire(repo, "same-branch"); err != nil {
+		t.Fatalf("Acquire: %v", err)
+	}
+
+	second := newManagerDB(t)
+	_, err := New(second, os.Stderr).Acquire(repo, "same-branch")
+	if err == nil || !strings.Contains(err.Error(), "already assigned") {
+		t.Fatalf("expected branch collision, got %v", err)
+	}
+}
+
 func TestReleaseResetsAndCleans(t *testing.T) {
 	repo := setupRepo(t)
 	d := newManagerDB(t)

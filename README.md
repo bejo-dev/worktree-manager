@@ -153,12 +153,21 @@ Resets a worktree and returns it to the pool.
 
 Behavior:
 
-1. Validate the path belongs to the manager.
+1. Validate the path is a Git worktree under the repository's manager pool. If
+   the selected database is missing its record, adopt the Git worktree into
+   that database before continuing.
 2. `git fetch origin`.
 3. `git reset --hard origin/<default_branch>`.
-4. `git clean -xfd`.
+4. Reset and clean initialized submodules, then run `git clean -xfd` in the
+   worktree. This removes manager state accidentally created inside a
+   submodule.
 5. Clear branch ownership.
 6. Mark `FREE`.
+
+Before acquisition and listing, Git worktrees under the manager pool are
+reconciled with the selected database. This prevents a worktree created with
+one repository-local database from being invisible to another database and
+prevents allocating a branch that Git already has checked out.
 
 ### `list`
 
