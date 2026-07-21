@@ -74,6 +74,11 @@ in the worktree will be discarded on release.
 - `worktree-manager verify` - check registered worktrees match git state.
 - `worktree-manager doctor` - repair state created by older versions.
 
+If SQLite reports a read-only database, pass
+`--database /path/to/repo/.worktree-manager/state.db` and add
+`.worktree-manager/` to that repository's `.gitignore`. Use the same database
+path for subsequent commands.
+
 ## State
 
 All state lives in `~/.worktree-manager/state.db`. You do not need to track

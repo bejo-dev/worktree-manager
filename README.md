@@ -69,6 +69,19 @@ no CGO or system SQLite is required).
 
 Prints the worktree-manager version (`2.0.0`).
 
+### `-d, --database <path>`
+
+Selects the SQLite state database. If the default location is read-only, the
+command prints advice to use a writable database in the repository's
+`.worktree-manager` folder, for example:
+
+```sh
+worktree-manager --database /path/to/repo/.worktree-manager/state.db acquire BenE/add-unit-menu
+```
+
+Use the same path for subsequent commands and add `.worktree-manager/` to the
+repository's `.gitignore`.
+
 ### `acquire [branch-name] [repo-path]`
 
 Returns a ready-to-use worktree for the given repository. If `repo-path` is

@@ -2,10 +2,20 @@ package db
 
 import (
 	"database/sql"
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
 )
+
+func TestIsReadonlyError(t *testing.T) {
+	if !IsReadonlyError(errors.New("attempt to write a readonly database (8)")) {
+		t.Fatal("expected SQLite readonly error to be detected")
+	}
+	if IsReadonlyError(errors.New("constraint failed")) {
+		t.Fatal("did not expect unrelated error to be detected as readonly")
+	}
+}
 
 func newTestDB(t *testing.T) *DB {
 	t.Helper()
