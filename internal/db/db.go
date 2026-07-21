@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -53,6 +54,15 @@ func DefaultStateDir() string {
 // DefaultDBPath returns the default database file path.
 func DefaultDBPath() string {
 	return filepath.Join(DefaultStateDir(), "state.db")
+}
+
+// IsReadonlyError reports whether err is SQLite's read-only database error.
+func IsReadonlyError(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "readonly database") || strings.Contains(message, "sqlite_readonly")
 }
 
 // Open opens (and migrates) the database at the given path.
