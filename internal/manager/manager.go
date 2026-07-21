@@ -72,6 +72,9 @@ func (m *Manager) Acquire(repoPath string, branchName string) (*AcquireResult, e
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
+	if err := m.reconcileRepository(r); err != nil {
+		return nil, fmt.Errorf("reconcile git worktrees: %w", err)
+	}
 
 	// Look for an existing FREE worktree (LRU).
 	wt, err := m.db.FindFreeWorktree(r.ID)
@@ -81,6 +84,11 @@ func (m *Manager) Acquire(repoPath string, branchName string) (*AcquireResult, e
 
 	created := false
 	if wt == nil {
+		if existing, err := m.db.FindWorktreeByBranch(r.ID, branchName); err != nil {
+			return nil, fmt.Errorf("check branch ownership: %w", err)
+		} else if existing != nil {
+			return nil, fmt.Errorf("branch %q is already assigned to worktree %s", branchName, existing.Path)
+		}
 		// Create a new worktree.
 		wt, err = m.createWorktree(r, defaultBranch, branchName)
 		if err != nil {
@@ -152,7 +160,25 @@ func (m *Manager) Release(worktreePath string) error {
 		return fmt.Errorf("lookup worktree: %w", err)
 	}
 	if wt == nil {
-		return errors.New("worktree does not belong to the manager")
+		var repoRoot string
+		repoRoot, err = poolRepositoryRoot(abs)
+		if err != nil {
+			return errors.New("worktree does not belong to the manager")
+		}
+		repo, err := gitops.Resolve(repoRoot)
+		if err != nil {
+			return errors.New("worktree does not belong to the manager")
+		}
+		if err := m.reconcileRepositoryPath(repo.Root); err != nil {
+			return fmt.Errorf("adopt worktree: %w", err)
+		}
+		wt, err = m.db.GetWorktreeByPath(abs)
+		if err != nil {
+			return fmt.Errorf("lookup adopted worktree: %w", err)
+		}
+		if wt == nil {
+			return errors.New("worktree does not belong to the manager")
+		}
 	}
 
 	repo, err := m.db.GetRepositoryByID(wt.RepositoryID)
@@ -221,6 +247,9 @@ func (m *Manager) List() ([]ListResult, error) {
 	}
 	repoMap := make(map[int64]*db.Repository, len(repos))
 	for _, r := range repos {
+		if err := m.reconcileRepository(r); err != nil {
+			return nil, fmt.Errorf("reconcile git worktrees: %w", err)
+		}
 		repoMap[r.ID] = r
 	}
 	wts, err := m.db.ListAllWorktrees()
@@ -245,6 +274,90 @@ func (m *Manager) List() ([]ListResult, error) {
 		out = append(out, item)
 	}
 	return out, nil
+}
+
+// reconcileRepository adopts manager-pool worktrees known to Git but missing
+// from this database. They are marked allocated until an explicit release
+// proves that they are safe to return to the pool.
+func (m *Manager) reconcileRepository(r *db.Repository) error {
+	return m.reconcileRepositoryPath(r.RootPath)
+}
+
+func (m *Manager) reconcileRepositoryPath(repoPath string) error {
+	repo, err := gitops.Resolve(repoPath)
+	if err != nil {
+		return fmt.Errorf("resolve repo: %w", err)
+	}
+	defaultBranch, err := repo.DefaultBranch()
+	if err != nil {
+		return fmt.Errorf("detect default branch: %w", err)
+	}
+	tx, err := m.db.BeginTx()
+	if err != nil {
+		return err
+	}
+	r, err := m.db.GetOrCreateRepository(tx, repo.Root, defaultBranch)
+	if err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	worktrees, err := repo.ListWorktrees()
+	if err != nil {
+		return fmt.Errorf("list git worktrees: %w", err)
+	}
+	for _, gitWT := range worktrees {
+		path, err := filepath.Abs(gitWT.Path)
+		if err != nil || !isManagerPoolPath(repo.Root, path) {
+			continue
+		}
+		if resolved, err := filepath.EvalSymlinks(path); err == nil {
+			path = resolved
+		}
+		known, err := m.db.GetWorktreeByPath(path)
+		if err != nil {
+			return err
+		}
+		if known != nil {
+			continue
+		}
+		tx, err := m.db.BeginTx()
+		if err != nil {
+			return err
+		}
+		if _, err := m.db.InsertWorktree(tx, r.ID, path, gitWT.Branch, db.StatusAllocated); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("record %s: %w", path, err)
+		}
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func isManagerPoolPath(repoRoot, path string) bool {
+	poolRoot := filepath.Join(repoRoot, ".worktree-manager", "wm")
+	rel, err := filepath.Rel(poolRoot, path)
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return false
+	}
+	return !strings.Contains(rel, string(filepath.Separator)) && strings.HasPrefix(rel, "pool-")
+}
+
+func poolRepositoryRoot(path string) (string, error) {
+	path, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	path = filepath.Clean(path)
+	poolName := filepath.Base(path)
+	if !strings.HasPrefix(poolName, "pool-") || filepath.Base(filepath.Dir(path)) != "wm" || filepath.Base(filepath.Dir(filepath.Dir(path))) != ".worktree-manager" {
+		return "", errors.New("path is outside the manager pool")
+	}
+	return filepath.Dir(filepath.Dir(filepath.Dir(path))), nil
 }
 
 // VerifyResult describes the state of a single worktree during verify.

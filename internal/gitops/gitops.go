@@ -19,6 +19,12 @@ type Repo struct {
 	Root string
 }
 
+// Worktree describes an entry from git worktree list --porcelain.
+type Worktree struct {
+	Path   string
+	Branch string
+}
+
 // Resolve resolves the git repository root containing the given path.
 func Resolve(path string) (*Repo, error) {
 	out, err := runGit(path, "rev-parse", "--show-toplevel")
@@ -112,6 +118,36 @@ func (r *Repo) CurrentBranch(path string) (string, error) {
 	return strings.TrimSpace(out), nil
 }
 
+// ListWorktrees returns worktrees registered by Git, including worktrees that
+// are absent from the manager database.
+func (r *Repo) ListWorktrees() ([]Worktree, error) {
+	out, err := runGit(r.Root, "worktree", "list", "--porcelain")
+	if err != nil {
+		return nil, err
+	}
+	var worktrees []Worktree
+	var current *Worktree
+	flush := func() {
+		if current != nil {
+			worktrees = append(worktrees, *current)
+			current = nil
+		}
+	}
+	for _, line := range strings.Split(out, "\n") {
+		switch {
+		case strings.HasPrefix(line, "worktree "):
+			flush()
+			current = &Worktree{Path: strings.TrimSpace(strings.TrimPrefix(line, "worktree "))}
+		case strings.HasPrefix(line, "branch ") && current != nil:
+			current.Branch = strings.TrimPrefix(strings.TrimSpace(strings.TrimPrefix(line, "branch ")), "refs/heads/")
+		case line == "":
+			flush()
+		}
+	}
+	flush()
+	return worktrees, nil
+}
+
 // RemoveWorktree removes a git worktree by path.
 func (r *Repo) RemoveWorktree(path string, force bool) error {
 	args := []string{"worktree", "remove"}
@@ -134,6 +170,12 @@ func (r *Repo) HardReset(path, ref string) error {
 
 // Clean removes untracked files and directories from the worktree at path.
 func (r *Repo) Clean(path string) error {
+	if _, err := runGit(path, "submodule", "foreach", "--recursive", "git", "reset", "--hard"); err != nil {
+		return err
+	}
+	if _, err := runGit(path, "submodule", "foreach", "--recursive", "git", "clean", "-xfd"); err != nil {
+		return err
+	}
 	_, err := runGit(path, "clean", "-xfd")
 	return err
 }
