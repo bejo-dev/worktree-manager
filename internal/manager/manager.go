@@ -15,8 +15,8 @@ import (
 
 // Manager coordinates database and git operations.
 type Manager struct {
-	db     *db.DB
-	logw   io.Writer
+	db   *db.DB
+	logw io.Writer
 }
 
 // New creates a new Manager.
@@ -31,8 +31,17 @@ type AcquireResult struct {
 	Created      bool
 }
 
-// Acquire returns a ready-to-use worktree for the given repo path.
-func (m *Manager) Acquire(repoPath string, taskID string) (*AcquireResult, error) {
+// Acquire returns a ready-to-use worktree for the given repo path. If no
+// branch name is supplied, it generates one and records it as the owner.
+func (m *Manager) Acquire(repoPath string, branchName string) (*AcquireResult, error) {
+	if branchName == "" {
+		var err error
+		branchName, err = randomWorktreeName()
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	repo, err := gitops.Resolve(repoPath)
 	if err != nil {
 		return nil, fmt.Errorf("resolve repo: %w", err)
@@ -72,11 +81,30 @@ func (m *Manager) Acquire(repoPath string, taskID string) (*AcquireResult, error
 	created := false
 	if wt == nil {
 		// Create a new worktree.
-		wt, err = m.createWorktree(r, defaultBranch)
+		wt, err = m.createWorktree(r, defaultBranch, branchName)
 		if err != nil {
 			return nil, err
 		}
 		created = true
+	} else if wt.BranchName != branchName {
+		// A free worktree keeps its folder, but its checked-out branch follows
+		// the task that is acquiring it.
+		if err := (&gitops.Repo{Root: r.RootPath}).RenameWorktreeBranch(wt.Path, branchName); err != nil {
+			m.markBroken(wt.ID)
+			return nil, fmt.Errorf("rename worktree branch: %w", err)
+		}
+		txRename, err := m.db.BeginTx()
+		if err != nil {
+			return nil, err
+		}
+		defer txRename.Rollback()
+		if err := m.db.UpdateWorktreePathBranch(txRename, wt.ID, wt.Path, branchName); err != nil {
+			return nil, fmt.Errorf("record worktree branch: %w", err)
+		}
+		if err := txRename.Commit(); err != nil {
+			return nil, err
+		}
+		wt.BranchName = branchName
 	}
 
 	gr := &gitops.Repo{Root: r.RootPath}
@@ -98,7 +126,7 @@ func (m *Manager) Acquire(repoPath string, taskID string) (*AcquireResult, error
 		return nil, err
 	}
 	defer tx2.Rollback()
-	if err := m.db.MarkAllocated(tx2, wt.ID, taskID); err != nil {
+	if err := m.db.MarkAllocated(tx2, wt.ID, branchName); err != nil {
 		return nil, fmt.Errorf("mark allocated: %w", err)
 	}
 	if err := tx2.Commit(); err != nil {
@@ -174,13 +202,13 @@ func (m *Manager) Release(worktreePath string) error {
 
 // ListResult is a flat view used by the list command.
 type ListResult struct {
-	Repository    string
-	DefaultBranch string
-	Path          string
-	BranchName    string
-	Status        string
-	TaskID        string
-	LastUsed      time.Time
+	Repository     string
+	DefaultBranch  string
+	Path           string
+	BranchName     string
+	Status         string
+	TaskID         string
+	LastUsed       time.Time
 	LastBaseCommit string
 }
 
@@ -258,8 +286,8 @@ func (m *Manager) Verify() ([]VerifyResult, error) {
 				vr.Issues = append(vr.Issues, fmt.Sprintf("path missing: %v", err))
 			}
 			// Check status consistency.
-			if w.Status == db.StatusAllocated && w.TaskID == "" {
-				vr.Issues = append(vr.Issues, "allocated but no task id")
+			if w.Status == db.StatusAllocated && w.BranchName == "" {
+				vr.Issues = append(vr.Issues, "allocated but no branch name")
 			}
 			results = append(results, vr)
 		}
@@ -267,11 +295,9 @@ func (m *Manager) Verify() ([]VerifyResult, error) {
 	return results, nil
 }
 
-// createWorktree creates a new git worktree and registers it. The branch name
-// is derived deterministically from a monotonically increasing slot for the
-// repository, so it is stable across acquire/release cycles but unique per
-// worktree slot.
-func (m *Manager) createWorktree(r *db.Repository, defaultBranch string) (*db.Worktree, error) {
+// createWorktree creates a new git worktree in the next pool slot and checks
+// out the requested branch name.
+func (m *Manager) createWorktree(r *db.Repository, defaultBranch, branchName string) (*db.Worktree, error) {
 	tx, err := m.db.BeginTx()
 	if err != nil {
 		return nil, err
@@ -281,8 +307,8 @@ func (m *Manager) createWorktree(r *db.Repository, defaultBranch string) (*db.Wo
 	if err != nil {
 		return nil, fmt.Errorf("next slot: %w", err)
 	}
-	branchName := fmt.Sprintf("wm/pool-%d-%d", r.ID, slot)
-	worktreePath := m.worktreePath(r, branchName)
+	poolName := fmt.Sprintf("wm/pool-%d-%d", r.ID, slot)
+	worktreePath := m.worktreePath(r, poolName)
 	id, err := m.db.InsertWorktree(tx, r.ID, worktreePath, branchName, db.StatusFree)
 	if err != nil {
 		return nil, fmt.Errorf("insert worktree: %w", err)
@@ -380,4 +406,3 @@ func (m *Manager) logf(format string, args ...any) {
 	}
 	fmt.Fprintf(m.logw, format+"\n", args...)
 }
-

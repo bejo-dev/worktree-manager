@@ -97,6 +97,12 @@ func (r *Repo) AddWorktree(path, branchName, baseBranch string) error {
 	return err
 }
 
+// RenameWorktreeBranch renames the branch currently checked out at path.
+func (r *Repo) RenameWorktreeBranch(path, branchName string) error {
+	_, err := runGit(path, "branch", "-M", branchName)
+	return err
+}
+
 // RemoveWorktree removes a git worktree by path.
 func (r *Repo) RemoveWorktree(path string, force bool) error {
 	args := []string{"worktree", "remove"}

@@ -7,13 +7,12 @@ The agent workflow:
 
 1. Before starting work:
    ```
-   worktree-manager acquire [task-id] [repo-path]
+   worktree-manager acquire [branch-name] [repo-path]
    ```
    Prints the absolute path of a ready-to-use worktree to stdout. If
    `repo-path` is omitted, the current working directory is used. The
-   `task-id` is optional metadata (typically a branch-name-like label such
-   as `add-unit-menu`) recorded against the worktree so `list`/`verify` can
-   show which task holds each one.
+   `branch-name` is optional (for example `BenE/add-unit-menu`) and is used as
+   the branch name recorded against the worktree.
 2. The agent works only inside that returned directory.
 3. After the task is complete:
    ```
@@ -22,7 +21,8 @@ The agent workflow:
 
 The tool owns all worktree lifecycle logic. State is kept in a local SQLite
 database at `~/.worktree-manager/state.db`, so the agent never has to track
-worktree state itself. All operations are deterministic.
+worktree state itself. When no branch name is supplied, a short random
+three-word name is generated for the branch and internal ownership label.
 
 ## Install
 
@@ -65,22 +65,22 @@ no CGO or system SQLite is required).
 
 ## Commands
 
-### `acquire [task-id] [repo-path]`
+### `acquire [branch-name] [repo-path]`
 
 Returns a ready-to-use worktree for the given repository. If `repo-path` is
 omitted, the current working directory is used. Output (stdout) is only the
 absolute worktree path, so it can be captured by scripts:
 
 ```sh
-WT=$(worktree-manager acquire add-unit-menu)
+WT=$(worktree-manager acquire BenE/add-unit-menu)
 ```
 
-Arguments are positional (task-id first, then repo-path) and may also be passed
+Arguments are positional (branch name first, then repo-path) and may also be passed
 as flags so they can appear in any order:
 
 | Flag            | Positional slot | Meaning                                  |
 | --------------- | --------------- | ---------------------------------------- |
-| `-t, --task`    | `args[0]`       | task id (e.g. `add-unit-menu`)           |
+| `-b, --branch`  | `args[0]`       | branch name (e.g. `BenE/add-unit-menu`)  |
 | `-r, --repo`    | `args[1]`       | repository path (default: current dir)  |
 
 It is an error to specify the same value via both a flag and a positional
@@ -89,15 +89,15 @@ argument.
 Examples:
 
 ```sh
-# cwd repo, with a task id (the common case)
-worktree-manager acquire add-unit-menu
+# cwd repo, with a branch name (the common case)
+worktree-manager acquire BenE/add-unit-menu
 
-# positional: task + explicit repo
-worktree-manager acquire fix-double-layering /path/to/repo
+# positional: branch + explicit repo
+worktree-manager acquire BenE/fix-double-layering /path/to/repo
 
 # flags, any order
-worktree-manager acquire -t improve-menu-order -r /path/to/repo
-worktree-manager acquire -r /path/to/repo -t improve-menu-order
+worktree-manager acquire -b BenE/improve-menu-order -r /path/to/repo
+worktree-manager acquire -r /path/to/repo -b BenE/improve-menu-order
 
 # explicit repo, no task
 worktree-manager acquire -r /path/to/repo
@@ -106,11 +106,10 @@ worktree-manager acquire -r /path/to/repo
 worktree-manager acquire
 ```
 
-The `task-id` is optional metadata recorded against the worktree so `list`
-and `verify` can show which task holds each one (useful for an orchestrator
-or when eyeballing `list`). It is not required for allocation correctness -
-the `ALLOCATED` status itself prevents double-allocation, regardless of
-task id.
+The branch name is recorded against the worktree so `list` and `verify` can
+show which branch holds each one. If omitted, the generated three-word name is
+used as both the branch name and internal ownership label. Branch names may
+include `/`, such as `BenE/add-unit-menu`.
 
 Behavior:
 
@@ -118,13 +117,14 @@ Behavior:
 2. Detect the default branch (`main`, `master`, ...).
 3. Find a `FREE` worktree for that repository, preferring the
    least-recently-used one.
-4. If none exists, create a new git worktree with a deterministic reusable
-   branch and register it.
+4. If none exists, create a new git worktree in the next reusable pool folder
+   and check out the requested branch. With no branch name, a generated
+   three-word name such as `soaring-quiet-fox` is used.
 5. Before returning:
    - `git fetch origin`
    - reset the worktree to the latest default branch (`origin/<default>`)
    - remove untracked files (`git clean -xfd`)
-6. Mark the worktree `ALLOCATED` (with the optional task id).
+6. Mark the worktree `ALLOCATED` with the branch name.
 7. Print the worktree absolute path to stdout.
 
 If a git operation fails, the worktree is marked `BROKEN` and the command
@@ -140,7 +140,7 @@ Behavior:
 2. `git fetch origin`.
 3. `git reset --hard origin/<default_branch>`.
 4. `git clean -xfd`.
-5. Clear task ownership.
+5. Clear branch ownership.
 6. Mark `FREE`.
 
 ### `list`
@@ -148,9 +148,9 @@ Behavior:
 Lists all managed worktrees across all repositories:
 
 ```
-STATUS     BRANCH       TASK    REPO                      PATH
-ALLOCATED  wm/pool-1-1  task-1  /path/to/repo             /path/to/repo/.worktree-manager/wm/pool-1-1
-FREE       wm/pool-1-2  -       /path/to/repo             /path/to/repo/.worktree-manager/wm/pool-1-2
+STATUS     BRANCH              REPO           PATH
+ALLOCATED  BenE/add-unit-menu  /path/to/repo  /path/to/repo/.worktree-manager/wm/pool-1-1
+FREE       -                    /path/to/repo  /path/to/repo/.worktree-manager/wm/pool-1-2
 ```
 
 ### `verify`
@@ -189,10 +189,11 @@ worktrees (
 );
 ```
 
-Worktrees are created under `<repo>/.worktree-manager/wm/pool-<repo>-<slot>`.
-Each worktree owns a stable branch (`wm/pool-<repo>-<slot>`) that is reused
-across acquire/release cycles, so the same worktree keeps the same branch over
-time.
+All worktrees are created under
+`<repo>/.worktree-manager/wm/pool-<repo>-<slot>`. The checked-out branch is
+named exactly after the requested branch name, or after the generated name
+when omitted. When a free worktree is reused, its branch is renamed to the new
+branch name.
 
 ## Guarantees
 

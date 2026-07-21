@@ -96,6 +96,26 @@ func TestAcquireCreatesWorktree(t *testing.T) {
 	}
 }
 
+func TestAcquireBranchNameAllowsSlash(t *testing.T) {
+	repo := setupRepo(t)
+	d := newManagerDB(t)
+	m := New(d, os.Stderr)
+
+	res, err := m.Acquire(repo, "BenE/add-unit-menu")
+	if err != nil {
+		t.Fatalf("Acquire: %v", err)
+	}
+	if res.BranchName != "BenE/add-unit-menu" {
+		t.Fatalf("expected branch name to be preserved, got %q", res.BranchName)
+	}
+	if !strings.Contains(res.WorktreePath, filepath.Join(".worktree-manager", "wm", "pool-")) {
+		t.Fatalf("expected pool folder, got %q", res.WorktreePath)
+	}
+	if current := strings.TrimSpace(run(t, res.WorktreePath, "git", "branch", "--show-current")); current != res.BranchName {
+		t.Fatalf("expected checked-out branch %q, got %q", res.BranchName, current)
+	}
+}
+
 func TestAcquireReusesFreeWorktree(t *testing.T) {
 	repo := setupRepo(t)
 	d := newManagerDB(t)
@@ -114,6 +134,9 @@ func TestAcquireReusesFreeWorktree(t *testing.T) {
 	}
 	if r1.WorktreePath != r2.WorktreePath {
 		t.Fatalf("expected reuse of same worktree: %s != %s", r1.WorktreePath, r2.WorktreePath)
+	}
+	if r2.BranchName != "task-B" {
+		t.Fatalf("expected branch to follow branch name, got %q", r2.BranchName)
 	}
 	if r2.Created {
 		t.Fatal("expected created=false on reuse")
@@ -202,6 +225,31 @@ func TestAcquireNoTaskID(t *testing.T) {
 	if wt == nil || wt.Status != db.StatusAllocated {
 		t.Fatalf("expected ALLOCATED, got %+v", wt)
 	}
+	if wt.TaskID == "" {
+		t.Fatal("expected generated task name")
+	}
+	parts := strings.Split(wt.TaskID, "-")
+	if len(parts) != 3 {
+		t.Fatalf("expected three-word generated name, got %q", wt.TaskID)
+	}
+	for i, word := range parts {
+		found := false
+		for _, candidate := range generatedNamePools[i] {
+			if word == candidate {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("word %q is not from pool %d", word, i+1)
+		}
+	}
+	if !strings.Contains(res.WorktreePath, filepath.Join(".worktree-manager", "wm", "pool-")) {
+		t.Fatalf("expected pool folder, got %q", res.WorktreePath)
+	}
+	if wt.BranchName != wt.TaskID {
+		t.Fatalf("expected generated branch name, got %q", wt.BranchName)
+	}
 }
 
 func TestList(t *testing.T) {
@@ -254,7 +302,7 @@ func TestVerifyClean(t *testing.T) {
 	}
 }
 
-func TestAcquireDeterministicBranch(t *testing.T) {
+func TestAcquireBranchFollowsTaskID(t *testing.T) {
 	repo := setupRepo(t)
 	d := newManagerDB(t)
 	m := New(d, os.Stderr)
@@ -263,8 +311,11 @@ func TestAcquireDeterministicBranch(t *testing.T) {
 	m.Release(r1.WorktreePath)
 	r2, _ := m.Acquire(repo, "task-2")
 
-	if r1.BranchName != r2.BranchName {
-		t.Fatalf("expected deterministic branch reuse: %s != %s", r1.BranchName, r2.BranchName)
+	if r1.BranchName != "task-1" {
+		t.Fatalf("expected first branch to follow branch name, got %q", r1.BranchName)
+	}
+	if r2.BranchName != "task-2" {
+		t.Fatalf("expected reused branch to follow branch name, got %q", r2.BranchName)
 	}
 }
 
