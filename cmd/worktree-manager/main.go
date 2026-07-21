@@ -33,14 +33,20 @@ Acquire options:
   -b, --branch <name>    Branch name (e.g. BenE/add-unit-menu).
   -r, --repo <repo-path> Repository path. Defaults to the current directory.
 
+Global options:
+  -d, --database <path>  SQLite database path (default: ~/.worktree-manager/state.db).
+
   branch name and repo-path may also be passed positionally (in that order). It is
   an error to specify the same value via both a flag and a positional argument.
 `
 
 func main() {
 	var showVersion bool
+	databasePath := db.DefaultDBPath()
 	flag.BoolVar(&showVersion, "v", false, "show version")
 	flag.BoolVar(&showVersion, "version", false, "show version")
+	flag.StringVar(&databasePath, "d", databasePath, "SQLite database path")
+	flag.StringVar(&databasePath, "database", databasePath, "SQLite database path")
 	flag.Usage = func() { fmt.Fprint(os.Stderr, usage) }
 	flag.Parse()
 	if showVersion {
@@ -65,7 +71,7 @@ func main() {
 			fmt.Fprintln(os.Stderr, "usage: worktree-manager acquire [branch-name] [repo-path]")
 			os.Exit(2)
 		}
-		database, err := db.Open(db.DefaultDBPath())
+		database, err := openDatabase(databasePath)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "error: open db: %v\n", err)
 			os.Exit(1)
@@ -75,7 +81,7 @@ func main() {
 		m := manager.New(database, os.Stderr)
 		res, err := m.Acquire(repoPath, branchName)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			printCommandError(err, databasePath)
 			os.Exit(1)
 		}
 		// Print only the absolute path to stdout.
@@ -86,7 +92,7 @@ func main() {
 			fmt.Fprintln(os.Stderr, "usage: worktree-manager release <worktree-path>")
 			os.Exit(2)
 		}
-		database, err := db.Open(db.DefaultDBPath())
+		database, err := openDatabase(databasePath)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "error: open db: %v\n", err)
 			os.Exit(1)
@@ -95,13 +101,13 @@ func main() {
 
 		m := manager.New(database, os.Stderr)
 		if err := m.Release(rest[0]); err != nil {
-			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			printCommandError(err, databasePath)
 			os.Exit(1)
 		}
 		fmt.Fprintln(os.Stderr, "released")
 
 	case "list":
-		database, err := db.Open(db.DefaultDBPath())
+		database, err := openDatabase(databasePath)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "error: open db: %v\n", err)
 			os.Exit(1)
@@ -111,7 +117,7 @@ func main() {
 		m := manager.New(database, os.Stderr)
 		items, err := m.List()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			printCommandError(err, databasePath)
 			os.Exit(1)
 		}
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
@@ -126,7 +132,7 @@ func main() {
 		w.Flush()
 
 	case "verify":
-		database, err := db.Open(db.DefaultDBPath())
+		database, err := openDatabase(databasePath)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "error: open db: %v\n", err)
 			os.Exit(1)
@@ -136,7 +142,7 @@ func main() {
 		m := manager.New(database, os.Stderr)
 		results, err := m.Verify()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			printCommandError(err, databasePath)
 			os.Exit(1)
 		}
 		ok := true
@@ -167,7 +173,7 @@ func main() {
 			fmt.Fprintln(os.Stderr, "usage: worktree-manager doctor")
 			os.Exit(2)
 		}
-		database, err := db.Open(db.DefaultDBPath())
+		database, err := openDatabase(databasePath)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "error: open db: %v\n", err)
 			os.Exit(1)
@@ -177,7 +183,7 @@ func main() {
 		m := manager.New(database, os.Stderr)
 		report, err := m.Doctor()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			printCommandError(err, databasePath)
 			os.Exit(1)
 		}
 		for _, issue := range report.Issues {
@@ -196,6 +202,26 @@ func main() {
 		fmt.Fprint(os.Stderr, usage)
 		os.Exit(2)
 	}
+}
+
+func printCommandError(err error, databasePath string) {
+	err = databaseError(err, databasePath)
+	fmt.Fprintf(os.Stderr, "error: %v\n", err)
+}
+
+func openDatabase(path string) (*db.DB, error) {
+	database, err := db.Open(path)
+	if err != nil {
+		return nil, databaseError(err, path)
+	}
+	return database, nil
+}
+
+func databaseError(err error, path string) error {
+	if !db.IsReadonlyError(err) {
+		return err
+	}
+	return fmt.Errorf("%w\n\nadvice: SQLite cannot write to %s in this environment. Retry with a database inside the repository worktree-manager folder, for example:\n  worktree-manager --database <repo-root>/.worktree-manager/state.db acquire ...\nUse the same --database path for subsequent commands, and add .worktree-manager/ to the repository's .gitignore", err, path)
 }
 
 // parseAcquireArgs parses the arguments for the acquire command. It supports
