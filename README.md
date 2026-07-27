@@ -189,6 +189,20 @@ detached snapshot of the default branch as it existed at the successful fetch.
 The repository's primary worktree and its local default branch are not
 modified.
 
+### `reset --force`
+
+Force-removes every worktree registered in the selected database, then wipes
+and recreates that database. This permanently discards uncommitted work in
+those worktrees. It refuses database records outside the manager's worktree
+pool to prevent accidental deletion of unrelated paths.
+
+The command may remove the worktree from which it is run, so invoke it from a
+primary checkout or another directory:
+
+```sh
+worktree-manager reset --force
+```
+
 Before acquisition and listing, Git worktrees under the manager pool are
 reconciled with the selected database. This prevents a worktree created with
 one repository-local database from being invisible to another database and

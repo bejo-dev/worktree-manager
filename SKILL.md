@@ -81,6 +81,9 @@ in the worktree will be discarded on release.
 - `worktree-manager list` - show all managed worktrees and their status.
 - `worktree-manager verify` - check registered worktrees match git state.
 - `worktree-manager doctor` - repair state created by older versions.
+- `worktree-manager reset --force` - permanently remove all managed worktrees
+  in the selected database and recreate it. Run this from a primary checkout
+  or another directory because it can remove the current worktree.
 
 If SQLite reports a read-only database, pass
 `--database /path/to/repo/.worktree-manager/state.db` and add

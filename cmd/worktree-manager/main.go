@@ -21,6 +21,7 @@ Usage:
   worktree-manager list
   worktree-manager verify
   worktree-manager doctor
+  worktree-manager reset --force
 
 Commands:
   acquire   Acquire a ready-to-use worktree. Prints the absolute path to stdout.
@@ -28,6 +29,7 @@ Commands:
   list      List all managed worktrees.
   verify    Verify consistency of registered worktrees with git state.
   doctor    Repair legacy branch and ownership records.
+  reset     Force-remove all managed worktrees and recreate the database.
 
 Acquire options:
   -b, --branch <name>    Branch name (e.g. BenE/add-unit-menu).
@@ -217,6 +219,39 @@ func main() {
 			os.Exit(1)
 		}
 
+	case "reset":
+		if err := requireForce(rest); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			fmt.Fprintln(os.Stderr, "usage: worktree-manager reset --force")
+			os.Exit(2)
+		}
+		database, err := openDatabase(databasePath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: open db: %v\n", err)
+			os.Exit(1)
+		}
+		m, err := newManager(database, baseDir)
+		if err != nil {
+			_ = database.Close()
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(2)
+		}
+		removed, err := m.RemoveAllWorktrees()
+		if err != nil {
+			_ = database.Close()
+			printCommandError(err, databasePath)
+			os.Exit(1)
+		}
+		if err := database.Close(); err != nil {
+			fmt.Fprintf(os.Stderr, "error: close db: %v\n", err)
+			os.Exit(1)
+		}
+		if err := db.Recreate(databasePath); err != nil {
+			fmt.Fprintf(os.Stderr, "error: recreate db: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Fprintf(os.Stderr, "reset: removed %d worktrees and recreated database\n", removed)
+
 	case "-h", "--help", "help":
 		fmt.Fprint(os.Stderr, usage)
 
@@ -249,6 +284,13 @@ func databaseError(err error, path string) error {
 		return err
 	}
 	return fmt.Errorf("%w\n\nadvice: SQLite cannot write to %s in this environment. Retry with a database inside the repository worktree-manager folder, for example:\n  worktree-manager --database <repo-root>/.worktree-manager/state.db acquire ...\nUse the same --database path for subsequent commands, and add .worktree-manager/ to the repository's .gitignore", err, path)
+}
+
+func requireForce(args []string) error {
+	if len(args) != 1 || args[0] != "--force" {
+		return fmt.Errorf("reset permanently removes managed worktrees and requires --force")
+	}
+	return nil
 }
 
 // parseAcquireArgs parses the arguments for the acquire command. It supports

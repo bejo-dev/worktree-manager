@@ -360,6 +360,55 @@ func (m *Manager) List() ([]ListResult, error) {
 	return out, nil
 }
 
+// RemoveAllWorktrees force-removes every worktree registered in this
+// manager's database. It only acts on worktrees below the manager's pool
+// directory, so malformed database records cannot remove arbitrary paths.
+func (m *Manager) RemoveAllWorktrees() (int, error) {
+	repositories, err := m.db.ListAllRepositories()
+	if err != nil {
+		return 0, err
+	}
+	repositoriesByID := make(map[int64]*db.Repository, len(repositories))
+	for _, repository := range repositories {
+		repositoriesByID[repository.ID] = repository
+	}
+
+	worktrees, err := m.db.ListAllWorktrees()
+	if err != nil {
+		return 0, err
+	}
+	for _, worktree := range worktrees {
+		repository := repositoriesByID[worktree.RepositoryID]
+		if repository == nil {
+			return 0, fmt.Errorf("worktree %s references an unregistered repository", worktree.Path)
+		}
+		if !m.isManagerPoolPath(repository.RootPath, worktree.Path) {
+			return 0, fmt.Errorf("refusing to remove worktree outside the manager pool: %s", worktree.Path)
+		}
+	}
+
+	for _, worktree := range worktrees {
+		repository := repositoriesByID[worktree.RepositoryID]
+		gitRepository := &gitops.Repo{Root: repository.RootPath}
+		registered, err := gitRepository.WorktreeExists(worktree.Path)
+		if err != nil {
+			return 0, fmt.Errorf("check worktree %s: %w", worktree.Path, err)
+		}
+		if !registered {
+			continue
+		}
+		if err := gitRepository.RemoveWorktree(worktree.Path, true); err != nil {
+			return 0, fmt.Errorf("remove worktree %s: %w", worktree.Path, err)
+		}
+	}
+	for _, repository := range repositories {
+		if err := (&gitops.Repo{Root: repository.RootPath}).PruneWorktrees(); err != nil {
+			return 0, fmt.Errorf("prune worktrees for %s: %w", repository.RootPath, err)
+		}
+	}
+	return len(worktrees), nil
+}
+
 // reconcileRepository adopts manager-pool worktrees known to Git but missing
 // from this database. They are marked allocated until an explicit release
 // proves that they are safe to return to the pool.
