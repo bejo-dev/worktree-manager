@@ -1,3 +1,14 @@
 # worktree-manager (short)
 
-Before starting work, run `worktree-manager acquire [branch-name]` and work only inside the returned path; when done, run `worktree-manager release <worktree-path>`. If no branch name is supplied, a random three-word name is used for the branch and internal ownership label. Branch names may include `/`.
+Before starting work, acquire a worktree from inside the target repository:
+
+```sh
+WT=$(worktree-manager acquire [branch-name])
+```
+This will return the absolute path to fresh worktree where you will do the work for this feature.
+
+After committing and pushing, return it to the pool with:
+
+```sh
+worktree-manager release "$WT"
+```
