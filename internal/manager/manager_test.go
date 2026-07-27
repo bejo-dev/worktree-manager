@@ -326,6 +326,9 @@ func TestReleaseFetchesLatestDefaultBranch(t *testing.T) {
 	if head := strings.TrimSpace(run(t, r.WorktreePath, "git", "rev-parse", "HEAD")); head != strings.TrimSpace(run(t, repo, "git", "rev-parse", "origin/main")) {
 		t.Fatalf("released worktree is not at origin/main: %s", head)
 	}
+	if status := strings.TrimSpace(run(t, r.WorktreePath, "git", "status", "--porcelain", "--untracked-files=all", "--ignored")); status != "" {
+		t.Fatalf("released worktree is not clean:\n%s", status)
+	}
 }
 
 func TestReleaseDoesNotReturnStaleWorktreeWhenFetchFails(t *testing.T) {

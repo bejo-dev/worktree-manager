@@ -241,6 +241,24 @@ func (m *Manager) Release(worktreePath string) error {
 		m.markBroken(wt.ID)
 		return fmt.Errorf("read default branch commit: %w", err)
 	}
+	headCommit, err := gr.WorktreeRevParse(abs, "HEAD")
+	if err != nil {
+		m.markBroken(wt.ID)
+		return fmt.Errorf("read released worktree commit: %w", err)
+	}
+	if headCommit != baseCommit {
+		m.markBroken(wt.ID)
+		return fmt.Errorf("released worktree is at %s, want %s", headCommit, baseCommit)
+	}
+	clean, err := gr.IsClean(abs)
+	if err != nil {
+		m.markBroken(wt.ID)
+		return fmt.Errorf("check released worktree status: %w", err)
+	}
+	if !clean {
+		m.markBroken(wt.ID)
+		return errors.New("released worktree is not clean")
+	}
 
 	// Mark FREE atomically.
 	tx, err := m.db.BeginTx()

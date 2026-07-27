@@ -90,6 +90,15 @@ func (r *Repo) RevParse(ref string) (string, error) {
 	return strings.TrimSpace(out), nil
 }
 
+// WorktreeRevParse returns the commit hash for ref as resolved from path.
+func (r *Repo) WorktreeRevParse(path, ref string) (string, error) {
+	out, err := runGit(path, "rev-parse", "--verify", ref)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(out), nil
+}
+
 // AddWorktree creates a new git worktree at path on a new branch tracking
 // origin/<baseBranch>. Returns the branch name.
 func (r *Repo) AddWorktree(path, branchName, baseBranch string) error {
@@ -199,6 +208,15 @@ func (r *Repo) Clean(path string) error {
 	}
 	_, err := runGit(path, "clean", "-xfd")
 	return err
+}
+
+// IsClean reports whether path has no tracked, untracked, or ignored changes.
+func (r *Repo) IsClean(path string) (bool, error) {
+	out, err := runGit(path, "status", "--porcelain", "--untracked-files=all", "--ignored")
+	if err != nil {
+		return false, err
+	}
+	return strings.TrimSpace(out) == "", nil
 }
 
 // HasRemote reports whether the repository has an origin remote configured.

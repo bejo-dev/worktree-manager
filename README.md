@@ -165,7 +165,14 @@ Behavior:
    checkout is required because Git does not allow the default branch to be
    checked out by both the primary worktree and a pooled worktree.
 6. Delete the released local branch and clear its ownership.
-7. Mark `FREE`.
+7. Verify that the detached `HEAD` matches the successfully fetched
+   `origin/<default_branch>` commit and that the working directory is clean.
+8. Mark `FREE`.
+
+After a successful release, the pool worktree is guaranteed to be a clean,
+detached snapshot of the default branch as it existed at the successful fetch.
+The repository's primary worktree and its local default branch are not
+modified.
 
 Before acquisition and listing, Git worktrees under the manager pool are
 reconciled with the selected database. This prevents a worktree created with
