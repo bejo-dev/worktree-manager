@@ -59,10 +59,23 @@ func newManagerDB(t *testing.T) *db.DB {
 	return d
 }
 
+func newTestManager(t *testing.T, database *db.DB) *Manager {
+	return newTestManagerAt(t, database, t.TempDir())
+}
+
+func newTestManagerAt(t *testing.T, database *db.DB, baseDir string) *Manager {
+	t.Helper()
+	m, err := NewWithBaseDir(database, os.Stderr, baseDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return m
+}
+
 func TestAcquireCreatesWorktree(t *testing.T) {
 	repo := setupRepo(t)
 	d := newManagerDB(t)
-	m := New(d, os.Stderr)
+	m := newTestManager(t, d)
 
 	res, err := m.Acquire(repo, "task-1")
 	if err != nil {
@@ -99,7 +112,12 @@ func TestAcquireCreatesWorktree(t *testing.T) {
 func TestAcquireBranchNameAllowsSlash(t *testing.T) {
 	repo := setupRepo(t)
 	d := newManagerDB(t)
-	m := New(d, os.Stderr)
+	baseDir := t.TempDir()
+	m := newTestManagerAt(t, d, baseDir)
+	canonicalBaseDir, err := canonicalPath(baseDir)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	res, err := m.Acquire(repo, "BenE/add-unit-menu")
 	if err != nil {
@@ -108,8 +126,8 @@ func TestAcquireBranchNameAllowsSlash(t *testing.T) {
 	if res.BranchName != "BenE/add-unit-menu" {
 		t.Fatalf("expected branch name to be preserved, got %q", res.BranchName)
 	}
-	if !strings.Contains(res.WorktreePath, filepath.Join(".worktree-manager", "wm", "pool-")) {
-		t.Fatalf("expected pool folder, got %q", res.WorktreePath)
+	if !strings.HasPrefix(res.WorktreePath, filepath.Join(canonicalBaseDir, "worktree-manager")+string(filepath.Separator)) {
+		t.Fatalf("expected path below custom base directory, got %q", res.WorktreePath)
 	}
 	if current := strings.TrimSpace(run(t, res.WorktreePath, "git", "branch", "--show-current")); current != res.BranchName {
 		t.Fatalf("expected checked-out branch %q, got %q", res.BranchName, current)
@@ -119,7 +137,7 @@ func TestAcquireBranchNameAllowsSlash(t *testing.T) {
 func TestDoctorRepairsLegacyBranchName(t *testing.T) {
 	repo := setupRepo(t)
 	d := newManagerDB(t)
-	m := New(d, os.Stderr)
+	m := newTestManager(t, d)
 
 	res, err := m.Acquire(repo, "BenE/add-unit-menu")
 	if err != nil {
@@ -164,7 +182,7 @@ func TestDoctorRepairsLegacyBranchName(t *testing.T) {
 func TestAcquireReusesFreeWorktree(t *testing.T) {
 	repo := setupRepo(t)
 	d := newManagerDB(t)
-	m := New(d, os.Stderr)
+	m := newTestManager(t, d)
 
 	r1, err := m.Acquire(repo, "task-A")
 	if err != nil {
@@ -191,7 +209,7 @@ func TestAcquireReusesFreeWorktree(t *testing.T) {
 func TestAcquireNeverAllocatesSameWorktreeTwice(t *testing.T) {
 	repo := setupRepo(t)
 	d := newManagerDB(t)
-	m := New(d, os.Stderr)
+	m := newTestManager(t, d)
 
 	r1, err := m.Acquire(repo, "task-1")
 	if err != nil {
@@ -211,13 +229,14 @@ func TestAcquireNeverAllocatesSameWorktreeTwice(t *testing.T) {
 func TestReleaseAdoptsWorktreeFromAnotherDatabase(t *testing.T) {
 	repo := setupRepo(t)
 	first := newManagerDB(t)
-	created, err := New(first, os.Stderr).Acquire(repo, "cross-db-task")
+	baseDir := t.TempDir()
+	created, err := newTestManagerAt(t, first, baseDir).Acquire(repo, "cross-db-task")
 	if err != nil {
 		t.Fatalf("Acquire: %v", err)
 	}
 
 	second := newManagerDB(t)
-	if err := New(second, os.Stderr).Release(created.WorktreePath); err != nil {
+	if err := newTestManagerAt(t, second, baseDir).Release(created.WorktreePath); err != nil {
 		t.Fatalf("Release from another database: %v", err)
 	}
 	wt, err := second.GetWorktreeByPath(created.WorktreePath)
@@ -232,12 +251,13 @@ func TestReleaseAdoptsWorktreeFromAnotherDatabase(t *testing.T) {
 func TestAcquireRejectsBranchAlreadyUsedByGitWorktree(t *testing.T) {
 	repo := setupRepo(t)
 	first := newManagerDB(t)
-	if _, err := New(first, os.Stderr).Acquire(repo, "same-branch"); err != nil {
+	baseDir := t.TempDir()
+	if _, err := newTestManagerAt(t, first, baseDir).Acquire(repo, "same-branch"); err != nil {
 		t.Fatalf("Acquire: %v", err)
 	}
 
 	second := newManagerDB(t)
-	_, err := New(second, os.Stderr).Acquire(repo, "same-branch")
+	_, err := newTestManagerAt(t, second, baseDir).Acquire(repo, "same-branch")
 	if err == nil || !strings.Contains(err.Error(), "already assigned") {
 		t.Fatalf("expected branch collision, got %v", err)
 	}
@@ -246,7 +266,7 @@ func TestAcquireRejectsBranchAlreadyUsedByGitWorktree(t *testing.T) {
 func TestReleaseResetsAndCleans(t *testing.T) {
 	repo := setupRepo(t)
 	d := newManagerDB(t)
-	m := New(d, os.Stderr)
+	m := newTestManager(t, d)
 
 	r, err := m.Acquire(repo, "task-1")
 	if err != nil {
@@ -294,7 +314,7 @@ func TestReleaseResetsAndCleans(t *testing.T) {
 func TestReleaseFetchesLatestDefaultBranch(t *testing.T) {
 	repo := setupRepo(t)
 	d := newManagerDB(t)
-	m := New(d, os.Stderr)
+	m := newTestManager(t, d)
 
 	r, err := m.Acquire(repo, "task-1")
 	if err != nil {
@@ -334,7 +354,7 @@ func TestReleaseFetchesLatestDefaultBranch(t *testing.T) {
 func TestReleaseDoesNotReturnStaleWorktreeWhenFetchFails(t *testing.T) {
 	repo := setupRepo(t)
 	d := newManagerDB(t)
-	m := New(d, os.Stderr)
+	m := newTestManager(t, d)
 
 	r, err := m.Acquire(repo, "task-1")
 	if err != nil {
@@ -356,7 +376,7 @@ func TestReleaseDoesNotReturnStaleWorktreeWhenFetchFails(t *testing.T) {
 
 func TestReleaseUnmanagedWorktreeFails(t *testing.T) {
 	d := newManagerDB(t)
-	m := New(d, os.Stderr)
+	m := newTestManager(t, d)
 
 	err := m.Release("/some/random/path")
 	if err == nil {
@@ -367,7 +387,7 @@ func TestReleaseUnmanagedWorktreeFails(t *testing.T) {
 func TestAcquireNoTaskID(t *testing.T) {
 	repo := setupRepo(t)
 	d := newManagerDB(t)
-	m := New(d, os.Stderr)
+	m := newTestManager(t, d)
 
 	res, err := m.Acquire(repo, "")
 	if err != nil {
@@ -396,7 +416,7 @@ func TestAcquireNoTaskID(t *testing.T) {
 			t.Fatalf("word %q is not from pool %d", word, i+1)
 		}
 	}
-	if !strings.Contains(res.WorktreePath, filepath.Join(".worktree-manager", "wm", "pool-")) {
+	if !strings.Contains(res.WorktreePath, filepath.Join("worktree-manager", "repo-")) {
 		t.Fatalf("expected pool folder, got %q", res.WorktreePath)
 	}
 	if wt.BranchName != wt.TaskID {
@@ -404,10 +424,20 @@ func TestAcquireNoTaskID(t *testing.T) {
 	}
 }
 
+func TestDefaultWorktreeBaseDir(t *testing.T) {
+	d := newManagerDB(t)
+	m := New(d, os.Stderr)
+	path := m.worktreePath(&db.Repository{RootPath: "/repo"}, "pool-1-1")
+	wantPrefix := filepath.Join(DefaultWorktreeBaseDir, "worktree-manager", repositoryDirectoryName("/repo")) + string(filepath.Separator)
+	if !strings.HasPrefix(path, wantPrefix) {
+		t.Fatalf("expected default base directory %q, got %q", DefaultWorktreeBaseDir, path)
+	}
+}
+
 func TestList(t *testing.T) {
 	repo := setupRepo(t)
 	d := newManagerDB(t)
-	m := New(d, os.Stderr)
+	m := newTestManager(t, d)
 
 	m.Acquire(repo, "task-1")
 	m.Acquire(repo, "task-2")
@@ -432,7 +462,7 @@ func TestList(t *testing.T) {
 func TestVerifyClean(t *testing.T) {
 	repo := setupRepo(t)
 	d := newManagerDB(t)
-	m := New(d, os.Stderr)
+	m := newTestManager(t, d)
 
 	r, _ := m.Acquire(repo, "task-1")
 	_ = r
@@ -457,7 +487,7 @@ func TestVerifyClean(t *testing.T) {
 func TestAcquireBranchFollowsTaskID(t *testing.T) {
 	repo := setupRepo(t)
 	d := newManagerDB(t)
-	m := New(d, os.Stderr)
+	m := newTestManager(t, d)
 
 	r1, _ := m.Acquire(repo, "task-1")
 	m.Release(r1.WorktreePath)
@@ -474,7 +504,7 @@ func TestAcquireBranchFollowsTaskID(t *testing.T) {
 func TestAcquireFetchesLatest(t *testing.T) {
 	repo := setupRepo(t)
 	d := newManagerDB(t)
-	m := New(d, os.Stderr)
+	m := newTestManager(t, d)
 
 	// Acquire and release a worktree.
 	r1, _ := m.Acquire(repo, "task-1")

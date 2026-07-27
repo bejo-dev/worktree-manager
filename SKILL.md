@@ -14,6 +14,8 @@ worktree-manager acquire [branch-name]
 - If omitted, the tool generates a random three-word name and uses it for the
   branch and internal ownership label.
 - The current working directory is used as the repository path.
+- Worktrees are created below `/private/tmp` by default. To use another base
+  directory, invoke the command as `worktree-manager --base-dir /path/to/worktrees acquire ...`.
 - The command prints **only** the absolute path of the ready-to-use worktree
   to stdout. Capture it:
 
