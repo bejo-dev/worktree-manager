@@ -20,7 +20,7 @@ The agent workflow:
    ```
 
 The tool owns all worktree lifecycle logic. State is kept in a local SQLite
-database at `~/.worktree-manager/state.db`, so the agent never has to track
+database at `/private/tmp/worktree-manager/state.db`, so the agent never has to track
 worktree state itself. When no branch name is supplied, a short random
 three-word name is generated for the branch and internal ownership label.
 
@@ -220,10 +220,10 @@ worktrees. It reports any worktree it could not repair and exits non-zero.
 
 ## State
 
-All state lives in a SQLite database at:
+By default, state lives in a SQLite database at:
 
 ```
-~/.worktree-manager/state.db
+/private/tmp/worktree-manager/state.db
 ```
 
 Schema:

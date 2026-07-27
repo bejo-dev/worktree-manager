@@ -34,7 +34,7 @@ Acquire options:
   -r, --repo <repo-path> Repository path. Defaults to the current directory.
 
 Global options:
-  -d, --database <path>  SQLite database path (default: ~/.worktree-manager/state.db).
+  -d, --database <path>  SQLite database path (default: /private/tmp/worktree-manager/state.db).
       --base-dir <path>  Directory for managed worktrees (default: /private/tmp).
 
   branch name and repo-path may also be passed positionally (in that order). It is

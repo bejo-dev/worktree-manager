@@ -17,6 +17,13 @@ func TestIsReadonlyError(t *testing.T) {
 	}
 }
 
+func TestDefaultDBPath(t *testing.T) {
+	want := "/private/tmp/worktree-manager/state.db"
+	if got := DefaultDBPath(); got != want {
+		t.Fatalf("DefaultDBPath() = %q, want %q", got, want)
+	}
+}
+
 func newTestDB(t *testing.T) *DB {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "state.db")
