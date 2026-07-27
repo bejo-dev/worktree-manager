@@ -53,8 +53,14 @@ The tool will:
 - fetch `origin`,
 - reset the worktree to `origin/<default-branch>`,
 - `git clean -xfd` (remove untracked files),
-- clear branch ownership,
+- detach at the refreshed default-branch commit,
+- delete the released task branch and clear its ownership,
+- verify that `HEAD` matches the fetched default branch and the worktree is clean,
 - mark it `FREE`.
+
+After a successful release, the pool worktree is a clean detached snapshot of
+the default branch from the successful fetch. The primary checkout is not
+modified.
 
 Run this once you have committed/pushed your work. Anything left uncommitted
 in the worktree will be discarded on release.

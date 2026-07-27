@@ -95,12 +95,12 @@ func (m *Manager) Acquire(repoPath string, branchName string) (*AcquireResult, e
 			return nil, err
 		}
 		created = true
-	} else if wt.BranchName != branchName {
-		// A free worktree keeps its folder, but its checked-out branch follows
-		// the task that is acquiring it.
-		if err := (&gitops.Repo{Root: r.RootPath}).RenameWorktreeBranch(wt.Path, branchName); err != nil {
+	} else {
+		// A free worktree is detached at the default branch. Create the task
+		// branch from that commit before handing it out again.
+		if err := (&gitops.Repo{Root: r.RootPath}).CheckoutNewBranch(wt.Path, branchName); err != nil {
 			m.markBroken(wt.ID)
-			return nil, fmt.Errorf("rename worktree branch: %w", err)
+			return nil, fmt.Errorf("check out worktree branch: %w", err)
 		}
 		txRename, err := m.db.BeginTx()
 		if err != nil {
@@ -192,10 +192,17 @@ func (m *Manager) Release(worktreePath string) error {
 	gr := &gitops.Repo{Root: repo.RootPath}
 	defaultBranch := repo.DefaultBranch
 
-	// Fetch origin (ignore errors if no remote).
+	releasedBranch, err := gr.CurrentBranch(abs)
+	if err != nil {
+		m.markBroken(wt.ID)
+		return fmt.Errorf("read worktree branch: %w", err)
+	}
+
+	// Fetch origin before resetting so a released worktree is never returned to
+	// the pool on a stale default-branch commit.
 	if gr.HasRemote() {
 		if err := gr.FetchOrigin(); err != nil {
-			m.logf("warning: fetch origin failed: %v", err)
+			return fmt.Errorf("fetch origin: %w", err)
 		}
 	}
 
@@ -215,12 +222,56 @@ func (m *Manager) Release(worktreePath string) error {
 		return fmt.Errorf("clean worktree: %w", err)
 	}
 
+	// A default branch is usually checked out in the primary worktree, so Git
+	// will not let a pool worktree check it out too. Detach at the refreshed
+	// default-branch commit, then delete the branch that was released.
+	if err := gr.CheckoutDetached(abs, target); err != nil {
+		m.markBroken(wt.ID)
+		return fmt.Errorf("detach worktree at default branch: %w", err)
+	}
+	if releasedBranch != "" && releasedBranch != defaultBranch {
+		if err := gr.DeleteBranch(releasedBranch); err != nil {
+			m.markBroken(wt.ID)
+			return fmt.Errorf("delete released branch %q: %w", releasedBranch, err)
+		}
+	}
+
+	baseCommit, err := gr.RevParse(target)
+	if err != nil {
+		m.markBroken(wt.ID)
+		return fmt.Errorf("read default branch commit: %w", err)
+	}
+	headCommit, err := gr.WorktreeRevParse(abs, "HEAD")
+	if err != nil {
+		m.markBroken(wt.ID)
+		return fmt.Errorf("read released worktree commit: %w", err)
+	}
+	if headCommit != baseCommit {
+		m.markBroken(wt.ID)
+		return fmt.Errorf("released worktree is at %s, want %s", headCommit, baseCommit)
+	}
+	clean, err := gr.IsClean(abs)
+	if err != nil {
+		m.markBroken(wt.ID)
+		return fmt.Errorf("check released worktree status: %w", err)
+	}
+	if !clean {
+		m.markBroken(wt.ID)
+		return errors.New("released worktree is not clean")
+	}
+
 	// Mark FREE atomically.
 	tx, err := m.db.BeginTx()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
+	if err := m.db.UpdateWorktreePathBranch(tx, wt.ID, wt.Path, defaultBranch); err != nil {
+		return fmt.Errorf("record default branch: %w", err)
+	}
+	if err := m.db.UpdateBaseCommit(tx, wt.ID, baseCommit); err != nil {
+		return fmt.Errorf("record default branch commit: %w", err)
+	}
 	if err := m.db.MarkFree(tx, wt.ID); err != nil {
 		return fmt.Errorf("mark free: %w", err)
 	}
@@ -415,6 +466,11 @@ func (m *Manager) Doctor() (*DoctorResult, error) {
 					return nil, err
 				}
 				owner = desired
+			}
+			// Released worktrees are intentionally detached at the default
+			// branch so the primary worktree can keep that branch checked out.
+			if wt.Status == db.StatusFree && actual == "" {
+				continue
 			}
 
 			if desired == "" {

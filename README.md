@@ -67,7 +67,7 @@ no CGO or system SQLite is required).
 
 ### `-v, --version`
 
-Prints the worktree-manager version (`2.0.1`).
+Prints the worktree-manager version (`2.0.2`).
 
 ### `-d, --database <path>`
 
@@ -161,8 +161,18 @@ Behavior:
 4. Reset and clean initialized submodules, then run `git clean -xfd` in the
    worktree. This removes manager state accidentally created inside a
    submodule.
-5. Clear branch ownership.
-6. Mark `FREE`.
+5. Detach the worktree at the refreshed default-branch commit. A detached
+   checkout is required because Git does not allow the default branch to be
+   checked out by both the primary worktree and a pooled worktree.
+6. Delete the released local branch and clear its ownership.
+7. Verify that the detached `HEAD` matches the successfully fetched
+   `origin/<default_branch>` commit and that the working directory is clean.
+8. Mark `FREE`.
+
+After a successful release, the pool worktree is guaranteed to be a clean,
+detached snapshot of the default branch as it existed at the successful fetch.
+The repository's primary worktree and its local default branch are not
+modified.
 
 Before acquisition and listing, Git worktrees under the manager pool are
 reconciled with the selected database. This prevents a worktree created with
@@ -225,8 +235,9 @@ worktrees (
 All worktrees are created under
 `<repo>/.worktree-manager/wm/pool-<repo>-<slot>`. The checked-out branch is
 named exactly after the requested branch name, or after the generated name
-when omitted. When a free worktree is reused, its branch is renamed to the new
-branch name.
+when omitted. Released worktrees are detached at the latest default-branch
+commit and their task branches are deleted. When a free worktree is reused, a
+new branch is created for the next task.
 
 ## Guarantees
 

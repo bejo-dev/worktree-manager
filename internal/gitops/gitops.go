@@ -90,6 +90,15 @@ func (r *Repo) RevParse(ref string) (string, error) {
 	return strings.TrimSpace(out), nil
 }
 
+// WorktreeRevParse returns the commit hash for ref as resolved from path.
+func (r *Repo) WorktreeRevParse(path, ref string) (string, error) {
+	out, err := runGit(path, "rev-parse", "--verify", ref)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(out), nil
+}
+
 // AddWorktree creates a new git worktree at path on a new branch tracking
 // origin/<baseBranch>. Returns the branch name.
 func (r *Repo) AddWorktree(path, branchName, baseBranch string) error {
@@ -106,6 +115,27 @@ func (r *Repo) AddWorktree(path, branchName, baseBranch string) error {
 // RenameWorktreeBranch renames the branch currently checked out at path.
 func (r *Repo) RenameWorktreeBranch(path, branchName string) error {
 	_, err := runGit(path, "branch", "-M", branchName)
+	return err
+}
+
+// CheckoutNewBranch force-checks out branchName at the worktree's current
+// commit. This also works when the worktree is detached.
+func (r *Repo) CheckoutNewBranch(path, branchName string) error {
+	_, err := runGit(path, "checkout", "-B", branchName)
+	return err
+}
+
+// CheckoutDetached checks out ref in detached HEAD state at path. Pool
+// worktrees use a detached HEAD while free because the default branch is
+// commonly already checked out in the primary worktree.
+func (r *Repo) CheckoutDetached(path, ref string) error {
+	_, err := runGit(path, "checkout", "--detach", ref)
+	return err
+}
+
+// DeleteBranch force-deletes a local branch from the repository.
+func (r *Repo) DeleteBranch(branchName string) error {
+	_, err := runGit(r.Root, "branch", "-D", branchName)
 	return err
 }
 
@@ -178,6 +208,15 @@ func (r *Repo) Clean(path string) error {
 	}
 	_, err := runGit(path, "clean", "-xfd")
 	return err
+}
+
+// IsClean reports whether path has no tracked, untracked, or ignored changes.
+func (r *Repo) IsClean(path string) (bool, error) {
+	out, err := runGit(path, "status", "--porcelain", "--untracked-files=all", "--ignored")
+	if err != nil {
+		return false, err
+	}
+	return strings.TrimSpace(out) == "", nil
 }
 
 // HasRemote reports whether the repository has an origin remote configured.
