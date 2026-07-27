@@ -67,7 +67,7 @@ no CGO or system SQLite is required).
 
 ### `-v, --version`
 
-Prints the worktree-manager version (`2.0.2`).
+Prints the worktree-manager version (`2.0.3`).
 
 ### `-d, --database <path>`
 
@@ -81,6 +81,21 @@ worktree-manager --database /path/to/repo/.worktree-manager/state.db acquire Ben
 
 Use the same path for subsequent commands and add `.worktree-manager/` to the
 repository's `.gitignore`.
+
+### `--base-dir <path>`
+
+Selects the directory where managed worktrees are created. It defaults to
+`/private/tmp`. Each repository receives its own stable subdirectory beneath
+that base directory, avoiding collisions between repositories with the same
+name. Pass this option before the command:
+
+```sh
+worktree-manager --base-dir /path/to/worktrees acquire BenE/add-unit-menu
+```
+
+Use the same base directory for `list`, `verify`, or `release` when those
+commands need to discover and adopt worktrees created with a custom base
+directory.
 
 ### `acquire [branch-name] [repo-path]`
 
@@ -153,7 +168,7 @@ Resets a worktree and returns it to the pool.
 
 Behavior:
 
-1. Validate the path is a Git worktree under the repository's manager pool. If
+1. Validate the path is a Git worktree under the configured manager pool. If
    the selected database is missing its record, adopt the Git worktree into
    that database before continuing.
 2. `git fetch origin`.
@@ -185,8 +200,8 @@ Lists all managed worktrees across all repositories:
 
 ```
 STATUS     BRANCH              REPO           PATH
-ALLOCATED  BenE/add-unit-menu  /path/to/repo  /path/to/repo/.worktree-manager/wm/pool-1-1
-FREE       -                    /path/to/repo  /path/to/repo/.worktree-manager/wm/pool-1-2
+ALLOCATED  BenE/add-unit-menu  /path/to/repo  /private/tmp/worktree-manager/repo-<hash>/pool-1-1
+FREE       -                    /path/to/repo  /private/tmp/worktree-manager/repo-<hash>/pool-1-2
 ```
 
 ### `verify`
@@ -233,7 +248,8 @@ worktrees (
 ```
 
 All worktrees are created under
-`<repo>/.worktree-manager/wm/pool-<repo>-<slot>`. The checked-out branch is
+`/private/tmp/worktree-manager/repo-<hash>/pool-<repo>-<slot>` by default.
+Use `--base-dir` to place them below a different base directory. The checked-out branch is
 named exactly after the requested branch name, or after the generated name
 when omitted. Released worktrees are detached at the latest default-branch
 commit and their task branches are deleted. When a free worktree is reused, a

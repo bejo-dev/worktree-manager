@@ -10,7 +10,7 @@ import (
 	"github.com/bejo-dev/worktree-manager/internal/manager"
 )
 
-const version = "2.0.2"
+const version = "2.0.3"
 
 const usage = `worktree-manager - manage a reusable pool of git worktrees
 
@@ -35,6 +35,7 @@ Acquire options:
 
 Global options:
   -d, --database <path>  SQLite database path (default: ~/.worktree-manager/state.db).
+      --base-dir <path>  Directory for managed worktrees (default: /private/tmp).
 
   branch name and repo-path may also be passed positionally (in that order). It is
   an error to specify the same value via both a flag and a positional argument.
@@ -43,10 +44,12 @@ Global options:
 func main() {
 	var showVersion bool
 	databasePath := db.DefaultDBPath()
+	baseDir := manager.DefaultWorktreeBaseDir
 	flag.BoolVar(&showVersion, "v", false, "show version")
 	flag.BoolVar(&showVersion, "version", false, "show version")
 	flag.StringVar(&databasePath, "d", databasePath, "SQLite database path")
 	flag.StringVar(&databasePath, "database", databasePath, "SQLite database path")
+	flag.StringVar(&baseDir, "base-dir", baseDir, "directory for managed worktrees")
 	flag.Usage = func() { fmt.Fprint(os.Stderr, usage) }
 	flag.Parse()
 	if showVersion {
@@ -78,7 +81,11 @@ func main() {
 		}
 		defer database.Close()
 
-		m := manager.New(database, os.Stderr)
+		m, err := newManager(database, baseDir)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(2)
+		}
 		res, err := m.Acquire(repoPath, branchName)
 		if err != nil {
 			printCommandError(err, databasePath)
@@ -99,7 +106,11 @@ func main() {
 		}
 		defer database.Close()
 
-		m := manager.New(database, os.Stderr)
+		m, err := newManager(database, baseDir)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(2)
+		}
 		if err := m.Release(rest[0]); err != nil {
 			printCommandError(err, databasePath)
 			os.Exit(1)
@@ -114,7 +125,11 @@ func main() {
 		}
 		defer database.Close()
 
-		m := manager.New(database, os.Stderr)
+		m, err := newManager(database, baseDir)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(2)
+		}
 		items, err := m.List()
 		if err != nil {
 			printCommandError(err, databasePath)
@@ -139,7 +154,11 @@ func main() {
 		}
 		defer database.Close()
 
-		m := manager.New(database, os.Stderr)
+		m, err := newManager(database, baseDir)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(2)
+		}
 		results, err := m.Verify()
 		if err != nil {
 			printCommandError(err, databasePath)
@@ -180,7 +199,11 @@ func main() {
 		}
 		defer database.Close()
 
-		m := manager.New(database, os.Stderr)
+		m, err := newManager(database, baseDir)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(2)
+		}
 		report, err := m.Doctor()
 		if err != nil {
 			printCommandError(err, databasePath)
@@ -215,6 +238,10 @@ func openDatabase(path string) (*db.DB, error) {
 		return nil, databaseError(err, path)
 	}
 	return database, nil
+}
+
+func newManager(database *db.DB, baseDir string) (*manager.Manager, error) {
+	return manager.NewWithBaseDir(database, os.Stderr, baseDir)
 }
 
 func databaseError(err error, path string) error {
