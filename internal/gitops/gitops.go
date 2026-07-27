@@ -109,6 +109,27 @@ func (r *Repo) RenameWorktreeBranch(path, branchName string) error {
 	return err
 }
 
+// CheckoutNewBranch force-checks out branchName at the worktree's current
+// commit. This also works when the worktree is detached.
+func (r *Repo) CheckoutNewBranch(path, branchName string) error {
+	_, err := runGit(path, "checkout", "-B", branchName)
+	return err
+}
+
+// CheckoutDetached checks out ref in detached HEAD state at path. Pool
+// worktrees use a detached HEAD while free because the default branch is
+// commonly already checked out in the primary worktree.
+func (r *Repo) CheckoutDetached(path, ref string) error {
+	_, err := runGit(path, "checkout", "--detach", ref)
+	return err
+}
+
+// DeleteBranch force-deletes a local branch from the repository.
+func (r *Repo) DeleteBranch(branchName string) error {
+	_, err := runGit(r.Root, "branch", "-D", branchName)
+	return err
+}
+
 // CurrentBranch returns the branch checked out at path.
 func (r *Repo) CurrentBranch(path string) (string, error) {
 	out, err := runGit(path, "branch", "--show-current")

@@ -280,6 +280,75 @@ func TestReleaseResetsAndCleans(t *testing.T) {
 	if wt.TaskID != "" {
 		t.Fatalf("expected empty task, got %q", wt.TaskID)
 	}
+	if wt.BranchName != "main" {
+		t.Fatalf("expected default branch to be recorded, got %q", wt.BranchName)
+	}
+	if current := strings.TrimSpace(run(t, wtPath, "git", "branch", "--show-current")); current != "" {
+		t.Fatalf("expected released worktree to be detached, got branch %q", current)
+	}
+	if _, err := exec.Command("git", "-C", repo, "rev-parse", "--verify", "--quiet", "refs/heads/task-1").CombinedOutput(); err == nil {
+		t.Fatal("expected released branch to be deleted")
+	}
+}
+
+func TestReleaseFetchesLatestDefaultBranch(t *testing.T) {
+	repo := setupRepo(t)
+	d := newManagerDB(t)
+	m := New(d, os.Stderr)
+
+	r, err := m.Acquire(repo, "task-1")
+	if err != nil {
+		t.Fatalf("Acquire: %v", err)
+	}
+
+	// Advance origin after the worktree is acquired. Release must fetch this
+	// commit before resetting the worktree to the default branch.
+	dir := filepath.Dir(repo)
+	extra := filepath.Join(dir, "release-extra")
+	run(t, dir, "git", "clone", filepath.Join(dir, "origin.git"), extra)
+	run(t, extra, "git", "config", "user.email", "t@t")
+	run(t, extra, "git", "config", "user.name", "test")
+	writeFile(t, extra, "latest.txt", "latest")
+	run(t, extra, "git", "add", ".")
+	run(t, extra, "git", "commit", "-m", "latest")
+	run(t, extra, "git", "push", "origin", "main")
+
+	if err := m.Release(r.WorktreePath); err != nil {
+		t.Fatalf("Release: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(r.WorktreePath, "latest.txt"))
+	if err != nil {
+		t.Fatalf("latest default-branch file missing after release: %v", err)
+	}
+	if string(data) != "latest" {
+		t.Fatalf("unexpected latest file content: %q", data)
+	}
+	if head := strings.TrimSpace(run(t, r.WorktreePath, "git", "rev-parse", "HEAD")); head != strings.TrimSpace(run(t, repo, "git", "rev-parse", "origin/main")) {
+		t.Fatalf("released worktree is not at origin/main: %s", head)
+	}
+}
+
+func TestReleaseDoesNotReturnStaleWorktreeWhenFetchFails(t *testing.T) {
+	repo := setupRepo(t)
+	d := newManagerDB(t)
+	m := New(d, os.Stderr)
+
+	r, err := m.Acquire(repo, "task-1")
+	if err != nil {
+		t.Fatalf("Acquire: %v", err)
+	}
+	run(t, repo, "git", "remote", "set-url", "origin", filepath.Join(filepath.Dir(repo), "missing.git"))
+
+	if err := m.Release(r.WorktreePath); err == nil || !strings.Contains(err.Error(), "fetch origin") {
+		t.Fatalf("expected fetch failure, got %v", err)
+	}
+	wt, err := d.GetWorktreeByPath(r.WorktreePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if wt == nil || wt.Status != db.StatusAllocated {
+		t.Fatalf("expected worktree to remain allocated after fetch failure, got %+v", wt)
+	}
 }
 
 func TestReleaseUnmanagedWorktreeFails(t *testing.T) {

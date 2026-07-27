@@ -53,7 +53,8 @@ The tool will:
 - fetch `origin`,
 - reset the worktree to `origin/<default-branch>`,
 - `git clean -xfd` (remove untracked files),
-- clear branch ownership,
+- detach at the refreshed default-branch commit,
+- delete the released task branch and clear its ownership,
 - mark it `FREE`.
 
 Run this once you have committed/pushed your work. Anything left uncommitted
