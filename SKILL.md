@@ -89,5 +89,5 @@ path for subsequent commands.
 
 ## State
 
-All state lives in `~/.worktree-manager/state.db`. You do not need to track
+By default, all state lives in `/private/tmp/worktree-manager/state.db`. You do not need to track
 worktree state yourself - the tool owns it.

@@ -44,11 +44,7 @@ type DB struct {
 
 // DefaultStateDir returns the default state directory path.
 func DefaultStateDir() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		home = os.Getenv("HOME")
-	}
-	return filepath.Join(home, ".worktree-manager")
+	return filepath.Join("/private/tmp", "worktree-manager")
 }
 
 // DefaultDBPath returns the default database file path.
