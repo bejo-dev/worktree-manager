@@ -52,6 +52,24 @@ func DefaultDBPath() string {
 	return filepath.Join(DefaultStateDir(), "state.db")
 }
 
+// Recreate removes the database and its SQLite sidecar files, then creates an
+// empty database with the current schema.
+func Recreate(path string) error {
+	for _, candidate := range []string{path, path + "-shm", path + "-wal"} {
+		if err := os.Remove(candidate); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove database file %s: %w", candidate, err)
+		}
+	}
+	database, err := Open(path)
+	if err != nil {
+		return err
+	}
+	if err := database.Close(); err != nil {
+		return fmt.Errorf("close recreated database: %w", err)
+	}
+	return nil
+}
+
 // IsReadonlyError reports whether err is SQLite's read-only database error.
 func IsReadonlyError(err error) bool {
 	if err == nil {

@@ -459,6 +459,86 @@ func TestList(t *testing.T) {
 	}
 }
 
+func TestRemoveAllWorktrees(t *testing.T) {
+	firstRepository := setupRepo(t)
+	secondRepository := setupRepo(t)
+	d := newManagerDB(t)
+	m := newTestManager(t, d)
+
+	first, err := m.Acquire(firstRepository, "first-task")
+	if err != nil {
+		t.Fatalf("Acquire first worktree: %v", err)
+	}
+	second, err := m.Acquire(secondRepository, "second-task")
+	if err != nil {
+		t.Fatalf("Acquire second worktree: %v", err)
+	}
+
+	removed, err := m.RemoveAllWorktrees()
+	if err != nil {
+		t.Fatalf("RemoveAllWorktrees: %v", err)
+	}
+	if removed != 2 {
+		t.Fatalf("removed %d worktrees, want 2", removed)
+	}
+	for _, path := range []string{first.WorktreePath, second.WorktreePath} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("expected removed worktree path %s, got %v", path, err)
+		}
+	}
+}
+
+func TestRemoveAllWorktreesRejectsPathOutsidePool(t *testing.T) {
+	repository := setupRepo(t)
+	d := newManagerDB(t)
+	m := newTestManager(t, d)
+
+	tx, err := d.BeginTx()
+	if err != nil {
+		t.Fatalf("BeginTx: %v", err)
+	}
+	registeredRepository, err := d.GetOrCreateRepository(tx, repository, "main")
+	if err != nil {
+		t.Fatalf("GetOrCreateRepository: %v", err)
+	}
+	unsafePath := t.TempDir()
+	if _, err := d.InsertWorktree(tx, registeredRepository.ID, unsafePath, "unsafe", db.StatusAllocated); err != nil {
+		t.Fatalf("InsertWorktree: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+
+	if _, err := m.RemoveAllWorktrees(); err == nil || !strings.Contains(err.Error(), "outside the manager pool") {
+		t.Fatalf("expected pool-path validation error, got %v", err)
+	}
+	if _, err := os.Stat(unsafePath); err != nil {
+		t.Fatalf("expected unsafe path to remain, got %v", err)
+	}
+}
+
+func TestRemoveAllWorktreesPrunesMissingWorktree(t *testing.T) {
+	repository := setupRepo(t)
+	d := newManagerDB(t)
+	m := newTestManager(t, d)
+
+	worktree, err := m.Acquire(repository, "missing-task")
+	if err != nil {
+		t.Fatalf("Acquire: %v", err)
+	}
+	if err := os.RemoveAll(worktree.WorktreePath); err != nil {
+		t.Fatalf("RemoveAll test worktree: %v", err)
+	}
+
+	removed, err := m.RemoveAllWorktrees()
+	if err != nil {
+		t.Fatalf("RemoveAllWorktrees: %v", err)
+	}
+	if removed != 1 {
+		t.Fatalf("removed %d worktrees, want 1", removed)
+	}
+}
+
 func TestVerifyClean(t *testing.T) {
 	repo := setupRepo(t)
 	d := newManagerDB(t)

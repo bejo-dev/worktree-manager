@@ -24,6 +24,44 @@ func TestDefaultDBPath(t *testing.T) {
 	}
 }
 
+func TestRecreate(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.db")
+	d, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	tx, err := d.BeginTx()
+	if err != nil {
+		t.Fatalf("BeginTx: %v", err)
+	}
+	if _, err := d.GetOrCreateRepository(tx, "/repo/reset", "main"); err != nil {
+		t.Fatalf("GetOrCreateRepository: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+	if err := d.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	if err := Recreate(path); err != nil {
+		t.Fatalf("Recreate: %v", err)
+	}
+
+	recreated, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open recreated database: %v", err)
+	}
+	t.Cleanup(func() { recreated.Close() })
+	repos, err := recreated.ListAllRepositories()
+	if err != nil {
+		t.Fatalf("ListAllRepositories: %v", err)
+	}
+	if len(repos) != 0 {
+		t.Fatalf("expected empty recreated database, got %+v", repos)
+	}
+}
+
 func newTestDB(t *testing.T) *DB {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "state.db")
