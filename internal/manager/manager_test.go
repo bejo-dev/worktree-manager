@@ -362,6 +362,28 @@ func TestAcquireFailsWhenFetchFails(t *testing.T) {
 	}
 }
 
+func TestAcquireMarksWorktreeBrokenWhenDependencyInstallFails(t *testing.T) {
+	repo := setupRepo(t)
+	writeFile(t, repo, "go.mod", "this is not a go module\n")
+	run(t, repo, "git", "add", "go.mod")
+	run(t, repo, "git", "commit", "-m", "add invalid module")
+	run(t, repo, "git", "push", "origin", "main")
+
+	d := newManagerDB(t)
+	m := newTestManager(t, d)
+	if _, err := m.Acquire(repo, "task-1"); err == nil || !strings.Contains(err.Error(), "install dependencies") {
+		t.Fatalf("expected dependency installation failure, got %v", err)
+	}
+
+	worktrees, err := d.ListAllWorktrees()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(worktrees) != 1 || worktrees[0].Status != db.StatusBroken {
+		t.Fatalf("expected one BROKEN worktree, got %+v", worktrees)
+	}
+}
+
 func TestReleaseDoesNotReturnStaleWorktreeWhenFetchFails(t *testing.T) {
 	repo := setupRepo(t)
 	d := newManagerDB(t)
