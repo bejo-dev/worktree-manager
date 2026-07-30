@@ -69,7 +69,7 @@ no CGO or system SQLite is required).
 
 ### `-v, --version`
 
-Prints the worktree-manager version (`2.0.3`).
+Prints the worktree-manager version (`2.1.0`).
 
 ### `-d, --database <path>`
 

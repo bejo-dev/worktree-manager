@@ -10,7 +10,7 @@ import (
 	"github.com/bejo-dev/worktree-manager/internal/manager"
 )
 
-const version = "2.0.3"
+const version = "2.1.0"
 
 const usage = `worktree-manager - manage a reusable pool of git worktrees
 
