@@ -351,6 +351,17 @@ func TestReleaseFetchesLatestDefaultBranch(t *testing.T) {
 	}
 }
 
+func TestAcquireFailsWhenFetchFails(t *testing.T) {
+	repo := setupRepo(t)
+	d := newManagerDB(t)
+	m := newTestManager(t, d)
+	run(t, repo, "git", "remote", "set-url", "origin", filepath.Join(filepath.Dir(repo), "missing.git"))
+
+	if _, err := m.Acquire(repo, "task-1"); err == nil || !strings.Contains(err.Error(), "fetch origin") {
+		t.Fatalf("expected fetch failure, got %v", err)
+	}
+}
+
 func TestReleaseDoesNotReturnStaleWorktreeWhenFetchFails(t *testing.T) {
 	repo := setupRepo(t)
 	d := newManagerDB(t)

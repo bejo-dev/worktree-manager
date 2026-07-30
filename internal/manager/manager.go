@@ -676,7 +676,7 @@ func (m *Manager) createWorktree(r *db.Repository, defaultBranch, branchName str
 func (m *Manager) prepareWorktree(gr *gitops.Repo, wt *db.Worktree, defaultBranch string) error {
 	if gr.HasRemote() {
 		if err := gr.FetchOrigin(); err != nil {
-			m.logf("warning: fetch origin failed: %v", err)
+			return fmt.Errorf("fetch origin: %w", err)
 		}
 	}
 	target := "origin/" + defaultBranch
@@ -689,6 +689,25 @@ func (m *Manager) prepareWorktree(gr *gitops.Repo, wt *db.Worktree, defaultBranc
 	}
 	if err := gr.Clean(wt.Path); err != nil {
 		return err
+	}
+
+	baseCommit, err := gr.RevParse(target)
+	if err != nil {
+		return fmt.Errorf("read default branch commit: %w", err)
+	}
+	headCommit, err := gr.WorktreeRevParse(wt.Path, "HEAD")
+	if err != nil {
+		return fmt.Errorf("read worktree commit: %w", err)
+	}
+	if headCommit != baseCommit {
+		return fmt.Errorf("worktree is at %s, want %s", headCommit, baseCommit)
+	}
+	clean, err := gr.IsClean(wt.Path)
+	if err != nil {
+		return fmt.Errorf("check worktree status: %w", err)
+	}
+	if !clean {
+		return errors.New("worktree is not clean")
 	}
 	return nil
 }
