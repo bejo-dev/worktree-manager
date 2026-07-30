@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/bejo-dev/worktree-manager/internal/db"
+	"github.com/bejo-dev/worktree-manager/internal/dependencies"
 	"github.com/bejo-dev/worktree-manager/internal/gitops"
 )
 
@@ -145,6 +146,10 @@ func (m *Manager) Acquire(repoPath string, branchName string) (*AcquireResult, e
 	if err := m.prepareWorktree(gr, wt, defaultBranch); err != nil {
 		m.markBroken(wt.ID)
 		return nil, fmt.Errorf("prepare worktree: %w", err)
+	}
+	if err := dependencies.Install(wt.Path, m.logw); err != nil {
+		m.markBroken(wt.ID)
+		return nil, fmt.Errorf("install dependencies: %w", err)
 	}
 
 	// Record base commit.

@@ -62,6 +62,8 @@ no CGO or system SQLite is required).
 
 - `git` must be installed and on `PATH`.
 - Go 1.22 or newer (only for building from source).
+- Project dependency managers must be installed when the acquired project uses
+  them: `go`, `npm`, or `bun`.
 
 ## Commands
 
@@ -156,11 +158,33 @@ Behavior:
    - `git fetch origin`
    - reset the worktree to the latest default branch (`origin/<default>`)
    - remove untracked files (`git clean -xfd`)
+   - verify that `HEAD` matches the fetched default branch and the worktree is
+     clean
+   - detect and install project dependencies
 6. Mark the worktree `ALLOCATED` with the branch name.
 7. Print the worktree absolute path to stdout.
 
-If a git operation fails, the worktree is marked `BROKEN` and the command
-exits non-zero.
+Dependency installation currently supports:
+
+| Detection | Command |
+| --------- | ------- |
+| `go.mod` | `go mod download` |
+| `package.json` with `bun.lock`, `bun.lockb`, `bunfig.toml`, or a `packageManager` value beginning with `bun@` | `bun install` (frozen when a lockfile exists) |
+| `package.json` without Bun markers | `npm ci` when a lockfile exists, otherwise `npm install --no-package-lock` |
+
+A dependency-manager command failure marks the worktree `BROKEN` and the
+command exits non-zero. Projects with no supported manifest are left
+unchanged.
+
+Dependency support uses a small strategy registry in
+`internal/dependencies/dependencies.go`. Each strategy implements `Installer`
+with a manifest detector and install method. To add another ecosystem, create
+an installer there and add it to the `installers` slice. Keep detection
+conservative and add detection and command tests in
+`internal/dependencies/dependencies_test.go`.
+
+If a git or dependency-manager operation fails, the worktree is marked
+`BROKEN` and the command exits non-zero.
 
 ### `release <worktree-path>`
 
