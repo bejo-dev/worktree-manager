@@ -2,8 +2,6 @@
 package manager
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -516,8 +514,7 @@ func (m *Manager) isManagerPoolPath(repoRoot, path string) bool {
 }
 
 func repositoryDirectoryName(repoRoot string) string {
-	hash := sha256.Sum256([]byte(filepath.Clean(repoRoot)))
-	return "repo-" + hex.EncodeToString(hash[:])
+	return "repo-" + filepath.Base(filepath.Clean(repoRoot))
 }
 
 func canonicalPath(path string) (string, error) {
