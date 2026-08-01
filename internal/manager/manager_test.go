@@ -590,6 +590,22 @@ func TestDefaultWorktreeBaseDir(t *testing.T) {
 	}
 }
 
+func TestWorktreePathUsesRepositoryName(t *testing.T) {
+	d := newManagerDB(t)
+	baseDir := t.TempDir()
+	m := newTestManagerAt(t, d, baseDir)
+	canonicalBaseDir, err := canonicalPath(baseDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	path := m.worktreePath(&db.Repository{RootPath: "/projects/worktree-manager"}, "pool-1-1")
+	want := filepath.Join(canonicalBaseDir, "worktree-manager", "repo-worktree-manager", "pool-1-1")
+	if path != want {
+		t.Fatalf("expected repository-named pool path %q, got %q", want, path)
+	}
+}
+
 func TestList(t *testing.T) {
 	repo := setupRepo(t)
 	d := newManagerDB(t)

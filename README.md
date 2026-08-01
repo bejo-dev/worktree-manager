@@ -69,7 +69,7 @@ no CGO or system SQLite is required).
 
 ### `-v, --version`
 
-Prints the worktree-manager version (`2.1.1`).
+Prints the worktree-manager version (`2.2.0`).
 
 ### `-d, --database <path>`
 
@@ -87,9 +87,9 @@ repository's `.gitignore`.
 ### `--base-dir <path>`
 
 Selects the directory where managed worktrees are created. It defaults to
-`/private/tmp`. Each repository receives its own stable subdirectory beneath
-that base directory, avoiding collisions between repositories with the same
-name. Pass this option before the command:
+`/private/tmp`. Each repository receives a subdirectory named after its local
+repository directory beneath that base directory. Pass this option before the
+command:
 
 ```sh
 worktree-manager --base-dir /path/to/worktrees acquire BenE/add-unit-menu
@@ -239,8 +239,8 @@ Lists all managed worktrees across all repositories:
 
 ```
 STATUS     BRANCH              REPO           PATH
-ALLOCATED  BenE/add-unit-menu  /path/to/repo  /private/tmp/worktree-manager/repo-<hash>/pool-1-1
-FREE       -                    /path/to/repo  /private/tmp/worktree-manager/repo-<hash>/pool-1-2
+ALLOCATED  BenE/add-unit-menu  /path/to/repo  /private/tmp/worktree-manager/repo-<repo-name>/pool-1-1
+FREE       -                    /path/to/repo  /private/tmp/worktree-manager/repo-<repo-name>/pool-1-2
 ```
 
 ### `verify`
@@ -287,7 +287,7 @@ worktrees (
 ```
 
 All worktrees are created under
-`/private/tmp/worktree-manager/repo-<hash>/pool-<repo>-<slot>` by default.
+`/private/tmp/worktree-manager/repo-<repo-name>/pool-<repo>-<slot>` by default.
 Use `--base-dir` to place them below a different base directory. The checked-out branch is
 named exactly after the requested branch name, or after the generated name
 when omitted. Released worktrees are detached at the latest default-branch
