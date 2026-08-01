@@ -49,6 +49,41 @@ func setupRepo(t *testing.T) string {
 	return work
 }
 
+// setupRepoWithSubmodule creates a superproject whose initial commit records
+// the first commit of a local submodule.
+func setupRepoWithSubmodule(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	submoduleBare := filepath.Join(dir, "submodule.git")
+	run(t, dir, "git", "init", "--bare", "-b", "main", submoduleBare)
+	run(t, dir, "git", "clone", submoduleBare, "submodule-seed")
+	submoduleSeed := filepath.Join(dir, "submodule-seed")
+	run(t, submoduleSeed, "git", "config", "user.email", "t@t")
+	run(t, submoduleSeed, "git", "config", "user.name", "test")
+	writeFile(t, submoduleSeed, "README.md", "submodule A\n")
+	run(t, submoduleSeed, "git", "add", ".")
+	run(t, submoduleSeed, "git", "commit", "-m", "submodule A")
+	run(t, submoduleSeed, "git", "push", "origin", "main")
+
+	superBare := filepath.Join(dir, "origin.git")
+	run(t, dir, "git", "init", "--bare", "-b", "main", superBare)
+	run(t, dir, "git", "clone", superBare, "work")
+	work := filepath.Join(dir, "work")
+	run(t, work, "git", "config", "user.email", "t@t")
+	run(t, work, "git", "config", "user.name", "test")
+	// Git blocks the file protocol by default. Keep this test's local remote
+	// usable by the production submodule commands without changing global Git
+	// configuration.
+	run(t, work, "git", "config", "protocol.file.allow", "always")
+	run(t, work, "git", "-c", "protocol.file.allow=always", "submodule", "add", submoduleBare, "core")
+	run(t, work, "git", "commit", "-m", "add submodule")
+	run(t, work, "git", "push", "origin", "main")
+	if r, err := filepath.EvalSymlinks(work); err == nil {
+		return r
+	}
+	return work
+}
+
 func newManagerDB(t *testing.T) *db.DB {
 	t.Helper()
 	d, err := db.Open(filepath.Join(t.TempDir(), "state.db"))
@@ -351,6 +386,59 @@ func TestReleaseFetchesLatestDefaultBranch(t *testing.T) {
 	}
 }
 
+func TestReleaseAlignsSubmoduleWithSuperproject(t *testing.T) {
+	repo := setupRepoWithSubmodule(t)
+	d := newManagerDB(t)
+	m := newTestManager(t, d)
+
+	result, err := m.Acquire(repo, "task-1")
+	if err != nil {
+		t.Fatalf("Acquire: %v", err)
+	}
+	run(t, result.WorktreePath, "git", "-c", "protocol.file.allow=always", "submodule", "update", "--init", "--recursive")
+	worktreeSubmodule := filepath.Join(result.WorktreePath, "core")
+	initialCommit := strings.TrimSpace(run(t, worktreeSubmodule, "git", "rev-parse", "HEAD"))
+
+	dir := filepath.Dir(repo)
+	extra := filepath.Join(dir, "submodule-extra")
+	run(t, dir, "git", "clone", filepath.Join(dir, "submodule.git"), extra)
+	run(t, extra, "git", "config", "user.email", "t@t")
+	run(t, extra, "git", "config", "user.name", "test")
+	writeFile(t, extra, "README.md", "submodule B\n")
+	run(t, extra, "git", "add", ".")
+	run(t, extra, "git", "commit", "-m", "submodule B")
+	run(t, extra, "git", "push", "origin", "main")
+	run(t, result.WorktreePath, "git", "-c", "protocol.file.allow=always", "-C", "core", "fetch", "origin", "main")
+
+	run(t, repo, "git", "-c", "protocol.file.allow=always", "-C", "core", "fetch", "origin", "main")
+	run(t, repo, "git", "-C", "core", "checkout", "--detach", "origin/main")
+	updatedCommit := strings.TrimSpace(run(t, repo, "git", "-C", "core", "rev-parse", "HEAD"))
+	if updatedCommit == initialCommit {
+		t.Fatal("expected submodule to advance to a new commit")
+	}
+	run(t, repo, "git", "add", "core")
+	run(t, repo, "git", "commit", "-m", "advance submodule")
+	run(t, repo, "git", "push", "origin", "main")
+
+	if err := m.Release(result.WorktreePath); err != nil {
+		t.Fatalf("Release: %v", err)
+	}
+	gotCommit := strings.TrimSpace(run(t, worktreeSubmodule, "git", "rev-parse", "HEAD"))
+	if gotCommit != updatedCommit {
+		t.Fatalf("submodule is at %s, want superproject commit %s", gotCommit, updatedCommit)
+	}
+	if status := strings.TrimSpace(run(t, result.WorktreePath, "git", "status", "--porcelain", "--untracked-files=all", "--ignored")); status != "" {
+		t.Fatalf("released worktree is not clean:\n%s", status)
+	}
+	worktree, err := d.GetWorktreeByPath(result.WorktreePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if worktree == nil || worktree.Status != db.StatusFree {
+		t.Fatalf("expected released worktree to be FREE, got %+v", worktree)
+	}
+}
+
 func TestAcquireFailsWhenFetchFails(t *testing.T) {
 	repo := setupRepo(t)
 	d := newManagerDB(t)
@@ -414,6 +502,41 @@ func TestReleaseUnmanagedWorktreeFails(t *testing.T) {
 	err := m.Release("/some/random/path")
 	if err == nil {
 		t.Fatal("expected error for unmanaged worktree")
+	}
+}
+
+func TestDoctorIgnoresDetachedBrokenWorktree(t *testing.T) {
+	repo := setupRepo(t)
+	d := newManagerDB(t)
+	m := newTestManager(t, d)
+
+	result, err := m.Acquire(repo, "task-1")
+	if err != nil {
+		t.Fatalf("Acquire: %v", err)
+	}
+	run(t, result.WorktreePath, "git", "checkout", "--detach", "HEAD")
+	worktree, err := d.GetWorktreeByPath(result.WorktreePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx, err := d.BeginTx()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := d.MarkBroken(tx, worktree.ID); err != nil {
+		_ = tx.Rollback()
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+
+	report, err := m.Doctor()
+	if err != nil {
+		t.Fatalf("Doctor: %v", err)
+	}
+	if report.Checked != 1 || report.Repaired != 0 || len(report.Issues) != 0 {
+		t.Fatalf("unexpected doctor report: %+v", report)
 	}
 }
 

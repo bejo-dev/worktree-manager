@@ -175,7 +175,7 @@ func (m *Manager) Acquire(repoPath string, branchName string) (*AcquireResult, e
 
 // Release resets the worktree at the given path back to the default branch and
 // marks it FREE.
-func (m *Manager) Release(worktreePath string) error {
+func (m *Manager) Release(worktreePath string) (releaseErr error) {
 	abs, err := filepath.Abs(worktreePath)
 	if err != nil {
 		return fmt.Errorf("abs path: %w", err)
@@ -236,6 +236,26 @@ func (m *Manager) Release(worktreePath string) error {
 		return fmt.Errorf("read worktree branch: %w", err)
 	}
 
+	target := "origin/" + defaultBranch
+	if !gr.HasRemote() {
+		target = defaultBranch
+	}
+	checkoutAttempted := false
+	defer func() {
+		if releaseErr == nil || !checkoutAttempted {
+			return
+		}
+		var restoreErr error
+		if releasedBranch == "" {
+			restoreErr = gr.CheckoutDetached(abs, target)
+		} else {
+			restoreErr = gr.CheckoutNewBranch(abs, releasedBranch)
+		}
+		if restoreErr != nil {
+			m.logf("warning: could not restore worktree checkout after release failure: %v", restoreErr)
+		}
+	}()
+
 	// Fetch origin before resetting so a released worktree is never returned to
 	// the pool on a stale default-branch commit.
 	if gr.HasRemote() {
@@ -245,16 +265,17 @@ func (m *Manager) Release(worktreePath string) error {
 	}
 
 	// Reset to origin/<default>.
-	target := "origin/" + defaultBranch
-	if !gr.HasRemote() {
-		target = defaultBranch
-	}
 	if err := gr.HardReset(abs, target); err != nil {
 		m.markBroken(wt.ID)
 		return fmt.Errorf("reset worktree: %w", err)
 	}
+	if err := gr.SyncSubmodules(abs); err != nil {
+		m.markBroken(wt.ID)
+		return fmt.Errorf("sync submodules: %w", err)
+	}
 
-	// Clean untracked files.
+	// Clean untracked files. Clean also resets initialized submodules as a
+	// defensive pass after they have been aligned with the superproject.
 	if err := gr.Clean(abs); err != nil {
 		m.markBroken(wt.ID)
 		return fmt.Errorf("clean worktree: %w", err)
@@ -262,16 +283,11 @@ func (m *Manager) Release(worktreePath string) error {
 
 	// A default branch is usually checked out in the primary worktree, so Git
 	// will not let a pool worktree check it out too. Detach at the refreshed
-	// default-branch commit, then delete the branch that was released.
+	// default-branch commit and validate it before deleting the released branch.
+	checkoutAttempted = true
 	if err := gr.CheckoutDetached(abs, target); err != nil {
 		m.markBroken(wt.ID)
 		return fmt.Errorf("detach worktree at default branch: %w", err)
-	}
-	if releasedBranch != "" && releasedBranch != defaultBranch {
-		if err := gr.DeleteBranch(releasedBranch); err != nil {
-			m.markBroken(wt.ID)
-			return fmt.Errorf("delete released branch %q: %w", releasedBranch, err)
-		}
 	}
 
 	baseCommit, err := gr.RevParse(target)
@@ -296,6 +312,16 @@ func (m *Manager) Release(worktreePath string) error {
 	if !clean {
 		m.markBroken(wt.ID)
 		return errors.New("released worktree is not clean")
+	}
+
+	// Delete the released branch only after all final worktree validation has
+	// succeeded. The deferred restore puts the branch back if a later step
+	// fails.
+	if releasedBranch != "" && releasedBranch != defaultBranch {
+		if err := gr.DeleteBranch(releasedBranch); err != nil {
+			m.markBroken(wt.ID)
+			return fmt.Errorf("delete released branch %q: %w", releasedBranch, err)
+		}
 	}
 
 	// Mark FREE atomically.
@@ -545,6 +571,13 @@ func (m *Manager) Doctor() (*DoctorResult, error) {
 				continue
 			}
 
+			// Released worktrees are intentionally detached at the default
+			// branch. A failed release can also leave a BROKEN worktree
+			// detached, so there is no branch to rename when actual is empty.
+			if actual == "" {
+				continue
+			}
+
 			desired := wt.BranchName
 			owner := wt.TaskID
 			// Before the breaking change, an allocated worktree recorded the
@@ -560,11 +593,6 @@ func (m *Manager) Doctor() (*DoctorResult, error) {
 					return nil, err
 				}
 				owner = desired
-			}
-			// Released worktrees are intentionally detached at the default
-			// branch so the primary worktree can keep that branch checked out.
-			if wt.Status == db.StatusFree && actual == "" {
-				continue
 			}
 
 			if desired == "" {
