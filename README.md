@@ -69,7 +69,7 @@ no CGO or system SQLite is required).
 
 ### `-v, --version`
 
-Prints the worktree-manager version (`2.1.0`).
+Prints the worktree-manager version (`2.1.1`).
 
 ### `-d, --database <path>`
 
@@ -197,15 +197,16 @@ Behavior:
    that database before continuing.
 2. `git fetch origin`.
 3. `git reset --hard origin/<default_branch>`.
-4. Reset and clean initialized submodules, then run `git clean -xfd` in the
-   worktree. This removes manager state accidentally created inside a
+4. Initialize and update submodules to the commits recorded by the
+   superproject, then reset and clean them. Run `git clean -xfd` in the
+   worktree as well. This removes manager state accidentally created inside a
    submodule.
 5. Detach the worktree at the refreshed default-branch commit. A detached
    checkout is required because Git does not allow the default branch to be
    checked out by both the primary worktree and a pooled worktree.
-6. Delete the released local branch and clear its ownership.
-7. Verify that the detached `HEAD` matches the successfully fetched
+6. Verify that the detached `HEAD` matches the successfully fetched
    `origin/<default_branch>` commit and that the working directory is clean.
+7. Delete the released local branch and clear its ownership.
 8. Mark `FREE`.
 
 After a successful release, the pool worktree is guaranteed to be a clean,

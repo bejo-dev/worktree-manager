@@ -198,6 +198,13 @@ func (r *Repo) HardReset(path, ref string) error {
 	return nil
 }
 
+// SyncSubmodules initializes submodules and checks them out at the commits
+// recorded by the superproject.
+func (r *Repo) SyncSubmodules(path string) error {
+	_, err := runGit(path, "submodule", "update", "--init", "--recursive")
+	return err
+}
+
 // Clean removes untracked files and directories from the worktree at path.
 func (r *Repo) Clean(path string) error {
 	if _, err := runGit(path, "submodule", "foreach", "--recursive", "git", "reset", "--hard"); err != nil {

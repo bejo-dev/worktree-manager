@@ -54,10 +54,11 @@ worktree-manager release <worktree-path>
 The tool will:
 - fetch `origin`,
 - reset the worktree to `origin/<default-branch>`,
+- initialize, update, reset, and clean submodules,
 - `git clean -xfd` (remove untracked files),
 - detach at the refreshed default-branch commit,
-- delete the released task branch and clear its ownership,
 - verify that `HEAD` matches the fetched default branch and the worktree is clean,
+- delete the released task branch and clear its ownership,
 - mark it `FREE`.
 
 After a successful release, the pool worktree is a clean detached snapshot of
