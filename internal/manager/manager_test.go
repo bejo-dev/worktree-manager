@@ -197,7 +197,6 @@ func TestDoctorRepairsLegacyBranchName(t *testing.T) {
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
-
 	report, err := m.Doctor()
 	if err != nil {
 		t.Fatalf("Doctor: %v", err)
@@ -505,7 +504,108 @@ func TestReleaseUnmanagedWorktreeFails(t *testing.T) {
 	}
 }
 
-func TestDoctorIgnoresDetachedBrokenWorktree(t *testing.T) {
+func TestDoctorRecoversDetachedBrokenWorktree(t *testing.T) {
+	repo := setupRepo(t)
+	d := newManagerDB(t)
+	m := newTestManager(t, d)
+
+	result, err := m.Acquire(repo, "task-1")
+	if err != nil {
+		t.Fatalf("Acquire: %v", err)
+	}
+	run(t, result.WorktreePath, "git", "checkout", "--detach", "HEAD")
+	worktree, err := d.GetWorktreeByPath(result.WorktreePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx, err := d.BeginTx()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := d.MarkBroken(tx, worktree.ID); err != nil {
+		_ = tx.Rollback()
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, repo, "latest.txt", "latest")
+	run(t, repo, "git", "add", "latest.txt")
+	run(t, repo, "git", "commit", "-m", "latest")
+	run(t, repo, "git", "push", "origin", "main")
+
+	report, err := m.Doctor()
+	if err != nil {
+		t.Fatalf("Doctor: %v", err)
+	}
+	if report.Checked != 1 || report.Repaired != 1 || len(report.Issues) != 0 {
+		t.Fatalf("unexpected doctor report: %+v", report)
+	}
+	updated, err := d.GetWorktreeByPath(result.WorktreePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated == nil || updated.Status != db.StatusFree {
+		t.Fatalf("expected recovered worktree to be FREE, got %+v", updated)
+	}
+	if updated.BranchName != "main" || updated.TaskID != "" {
+		t.Fatalf("expected recovered worktree ownership to be cleared, got %+v", updated)
+	}
+	if current := strings.TrimSpace(run(t, result.WorktreePath, "git", "branch", "--show-current")); current != "" {
+		t.Fatalf("expected recovered worktree to remain detached, got branch %q", current)
+	}
+	if data, err := os.ReadFile(filepath.Join(result.WorktreePath, "latest.txt")); err != nil || string(data) != "latest" {
+		t.Fatalf("expected recovery to reset to latest origin/main, got %q (%v)", data, err)
+	}
+}
+
+func TestDoctorDoesNotRecoverDirtyDetachedBrokenWorktree(t *testing.T) {
+	repo := setupRepo(t)
+	d := newManagerDB(t)
+	m := newTestManager(t, d)
+
+	result, err := m.Acquire(repo, "task-1")
+	if err != nil {
+		t.Fatalf("Acquire: %v", err)
+	}
+	run(t, result.WorktreePath, "git", "checkout", "--detach", "HEAD")
+	writeFile(t, result.WorktreePath, "uncommitted.txt", "keep for review")
+	worktree, err := d.GetWorktreeByPath(result.WorktreePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx, err := d.BeginTx()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := d.MarkBroken(tx, worktree.ID); err != nil {
+		_ = tx.Rollback()
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+
+	report, err := m.Doctor()
+	if err != nil {
+		t.Fatalf("Doctor: %v", err)
+	}
+	if report.Checked != 1 || report.Repaired != 0 || len(report.Issues) != 1 {
+		t.Fatalf("unexpected doctor report: %+v", report)
+	}
+	if !strings.Contains(report.Issues[0], "dirty") {
+		t.Fatalf("expected dirty-worktree issue, got %q", report.Issues[0])
+	}
+	updated, err := d.GetWorktreeByPath(result.WorktreePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated == nil || updated.Status != db.StatusBroken {
+		t.Fatalf("expected worktree to remain BROKEN, got %+v", updated)
+	}
+}
+
+func TestVerifyClassifiesRecoverableBrokenWorktree(t *testing.T) {
 	repo := setupRepo(t)
 	d := newManagerDB(t)
 	m := newTestManager(t, d)
@@ -531,12 +631,86 @@ func TestDoctorIgnoresDetachedBrokenWorktree(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	report, err := m.Doctor()
+	results, err := m.Verify()
 	if err != nil {
-		t.Fatalf("Doctor: %v", err)
+		t.Fatalf("Verify: %v", err)
 	}
-	if report.Checked != 1 || report.Repaired != 0 || len(report.Issues) != 0 {
-		t.Fatalf("unexpected doctor report: %+v", report)
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+	if !results[0].Exists || !results[0].Clean {
+		t.Fatalf("expected existing clean worktree, got %+v", results[0])
+	}
+	found := false
+	for _, issue := range results[0].Issues {
+		if strings.Contains(issue, "recoverable BROKEN worktree") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected recoverable broken-worktree issue, got %v", results[0].Issues)
+	}
+}
+
+func TestVerifyDistinguishesStaleMetadataAndMissingMarker(t *testing.T) {
+	repo := setupRepo(t)
+	d := newManagerDB(t)
+	m := newTestManager(t, d)
+
+	markerMissing, err := m.Acquire(repo, "marker-missing")
+	if err != nil {
+		t.Fatalf("Acquire marker-missing: %v", err)
+	}
+	pathMissing, err := m.Acquire(repo, "path-missing")
+	if err != nil {
+		t.Fatalf("Acquire path-missing: %v", err)
+	}
+	if err := os.Remove(filepath.Join(markerMissing.WorktreePath, ".git")); err != nil {
+		t.Fatalf("remove worktree marker: %v", err)
+	}
+	if err := os.RemoveAll(pathMissing.WorktreePath); err != nil {
+		t.Fatalf("remove worktree path: %v", err)
+	}
+
+	for _, path := range []string{markerMissing.WorktreePath, pathMissing.WorktreePath} {
+		worktree, err := d.GetWorktreeByPath(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		tx, err := d.BeginTx()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := d.MarkBroken(tx, worktree.ID); err != nil {
+			_ = tx.Rollback()
+			t.Fatal(err)
+		}
+		if err := tx.Commit(); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	results, err := m.Verify()
+	if err != nil {
+		t.Fatalf("Verify: %v", err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("expected 2 results, got %d", len(results))
+	}
+	var sawStaleMetadata, sawMissingMarker bool
+	for _, result := range results {
+		for _, issue := range result.Issues {
+			if strings.Contains(issue, "stale Git metadata") {
+				sawStaleMetadata = true
+			}
+			if strings.Contains(issue, "missing worktree .git marker") {
+				sawMissingMarker = true
+			}
+		}
+	}
+	if !sawStaleMetadata || !sawMissingMarker {
+		t.Fatalf("expected stale metadata and missing marker issues, got %+v", results)
 	}
 }
 
