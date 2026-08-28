@@ -554,6 +554,9 @@ func TestDoctorRecoversDetachedBrokenWorktree(t *testing.T) {
 	if current := strings.TrimSpace(run(t, result.WorktreePath, "git", "branch", "--show-current")); current != "" {
 		t.Fatalf("expected recovered worktree to remain detached, got branch %q", current)
 	}
+	if _, err := exec.Command("git", "-C", repo, "rev-parse", "--verify", "--quiet", "refs/heads/task-1").CombinedOutput(); err == nil {
+		t.Fatal("expected recovered task branch to be deleted")
+	}
 	if data, err := os.ReadFile(filepath.Join(result.WorktreePath, "latest.txt")); err != nil || string(data) != "latest" {
 		t.Fatalf("expected recovery to reset to latest origin/main, got %q (%v)", data, err)
 	}

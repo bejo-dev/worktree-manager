@@ -675,6 +675,11 @@ func (m *Manager) recoverBrokenWorktree(r *db.Repository, wt *db.Worktree) error
 	if err != nil {
 		return fmt.Errorf("recover detached worktree: %w", err)
 	}
+	if wt.BranchName != "" && wt.BranchName != r.DefaultBranch {
+		if err := gr.DeleteBranchIfExists(wt.BranchName); err != nil {
+			return fmt.Errorf("delete recovered worktree branch %q: %w", wt.BranchName, err)
+		}
+	}
 
 	tx, err := m.db.BeginTx()
 	if err != nil {

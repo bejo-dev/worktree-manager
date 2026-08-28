@@ -141,6 +141,18 @@ func (r *Repo) DeleteBranch(branchName string) error {
 	return err
 }
 
+// DeleteBranchIfExists force-deletes a local branch when it is present.
+func (r *Repo) DeleteBranchIfExists(branchName string) error {
+	out, err := runGit(r.Root, "for-each-ref", "--format=%(refname)", "refs/heads/"+branchName)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(out) == "" {
+		return nil
+	}
+	return r.DeleteBranch(branchName)
+}
+
 // CurrentBranch returns the branch checked out at path.
 func (r *Repo) CurrentBranch(path string) (string, error) {
 	out, err := runGit(path, "branch", "--show-current")
