@@ -10,7 +10,7 @@ import (
 	"github.com/bejo-dev/worktree-manager/internal/manager"
 )
 
-const version = "2.2.0"
+const version = "2.2.1"
 
 const usage = `worktree-manager - manage a reusable pool of git worktrees
 
@@ -28,7 +28,7 @@ Commands:
   release   Release a worktree back to the pool.
   list      List all managed worktrees.
   verify    Verify consistency of registered worktrees with git state.
-  doctor    Repair legacy branch and ownership records.
+  doctor    Repair legacy state and recover clean detached worktrees.
   reset     Force-remove all managed worktrees and recreate the database.
 
 Acquire options:

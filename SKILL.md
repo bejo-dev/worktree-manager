@@ -2,6 +2,17 @@
 
 Manage a reusable pool of git worktrees for autonomous coding agents.
 
+## Permission requirements
+
+`acquire`, `release`, and `doctor` when it recovers worktrees update Git's
+shared worktree metadata under the primary repository's `.git/worktrees`
+directory. Invoke them with elevated filesystem permission from the initial
+command. Do not make an unprivileged attempt first. Use the same elevated
+permission for Git staging, committing, and other Git operations performed
+inside an acquired worktree because its index is also stored under the primary
+repository's shared Git metadata. In a Codex sandbox, request
+`require_escalated` for the command before it runs.
+
 ## Before starting work
 
 Run this from anywhere inside the target repository:
@@ -74,14 +85,16 @@ in the worktree will be discarded on release.
 - Never delete the default branch.
 - Never allocate the same worktree twice (the tool enforces this).
 - If a git operation fails, the worktree is marked `BROKEN` and will not be
-  handed out again until repaired.
+  handed out again until repaired. `doctor` can recover a `BROKEN` worktree
+  only when it is still a valid, clean detached checkout.
 - Logs are on stderr; stdout is machine-readable.
 
 ## Other commands
 
 - `worktree-manager list` - show all managed worktrees and their status.
 - `worktree-manager verify` - check registered worktrees match git state.
-- `worktree-manager doctor` - repair state created by older versions.
+- `worktree-manager doctor` - repair legacy state and recover clean detached
+  `BROKEN` worktrees.
 - `worktree-manager reset --force` - permanently remove all managed worktrees
   in the selected database and recreate it. Run this from a primary checkout
   or another directory because it can remove the current worktree.
