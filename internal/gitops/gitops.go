@@ -21,8 +21,10 @@ type Repo struct {
 
 // Worktree describes an entry from git worktree list --porcelain.
 type Worktree struct {
-	Path   string
-	Branch string
+	Path           string
+	Branch         string
+	Prunable       bool
+	PrunableReason string
 }
 
 // Resolve resolves the git repository root containing the given path.
@@ -139,6 +141,18 @@ func (r *Repo) DeleteBranch(branchName string) error {
 	return err
 }
 
+// DeleteBranchIfExists force-deletes a local branch when it is present.
+func (r *Repo) DeleteBranchIfExists(branchName string) error {
+	out, err := runGit(r.Root, "for-each-ref", "--format=%(refname)", "refs/heads/"+branchName)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(out) == "" {
+		return nil
+	}
+	return r.DeleteBranch(branchName)
+}
+
 // CurrentBranch returns the branch checked out at path.
 func (r *Repo) CurrentBranch(path string) (string, error) {
 	out, err := runGit(path, "branch", "--show-current")
@@ -170,12 +184,39 @@ func (r *Repo) ListWorktrees() ([]Worktree, error) {
 			current = &Worktree{Path: strings.TrimSpace(strings.TrimPrefix(line, "worktree "))}
 		case strings.HasPrefix(line, "branch ") && current != nil:
 			current.Branch = strings.TrimPrefix(strings.TrimSpace(strings.TrimPrefix(line, "branch ")), "refs/heads/")
+		case strings.HasPrefix(line, "prunable ") && current != nil:
+			current.Prunable = true
+			current.PrunableReason = strings.TrimSpace(strings.TrimPrefix(line, "prunable "))
 		case line == "":
 			flush()
 		}
 	}
 	flush()
 	return worktrees, nil
+}
+
+// FindWorktree returns the Git worktree entry matching path. Prunable entries
+// are returned so callers can distinguish stale Git metadata from an
+// unregistered path.
+func (r *Repo) FindWorktree(path string) (*Worktree, error) {
+	worktrees, err := r.ListWorktrees()
+	if err != nil {
+		return nil, err
+	}
+	target, err := canonicalWorktreePath(path)
+	if err != nil {
+		return nil, err
+	}
+	for i := range worktrees {
+		candidate, err := canonicalWorktreePath(worktrees[i].Path)
+		if err != nil {
+			continue
+		}
+		if candidate == target {
+			return &worktrees[i], nil
+		}
+	}
+	return nil, nil
 }
 
 // RemoveWorktree removes a git worktree by path.
@@ -240,35 +281,24 @@ func (r *Repo) PruneWorktrees() error {
 
 // WorktreeExists reports whether a worktree is registered at path.
 func (r *Repo) WorktreeExists(path string) (bool, error) {
-	out, err := runGit(r.Root, "worktree", "list", "--porcelain")
+	worktree, err := r.FindWorktree(path)
 	if err != nil {
 		return false, err
 	}
-	target, err := filepath.Abs(path)
+	return worktree != nil && !worktree.Prunable, nil
+}
+
+func canonicalWorktreePath(path string) (string, error) {
+	abs, err := filepath.Abs(path)
 	if err != nil {
-		return false, err
+		return "", err
 	}
-	target, err = filepath.EvalSymlinks(target)
-	if err != nil && !os.IsNotExist(err) {
-		return false, err
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+		return resolved, nil
+	} else if !os.IsNotExist(err) {
+		return "", err
 	}
-	for _, line := range strings.Split(out, "\n") {
-		if strings.HasPrefix(line, "worktree ") {
-			p := strings.TrimSpace(strings.TrimPrefix(line, "worktree "))
-			abs, err := filepath.Abs(p)
-			if err != nil {
-				continue
-			}
-			abs, err = filepath.EvalSymlinks(abs)
-			if err != nil {
-				continue
-			}
-			if abs == target {
-				return true, nil
-			}
-		}
-	}
-	return false, nil
+	return filepath.Clean(abs), nil
 }
 
 // runGit executes git with the given args in the given working directory.

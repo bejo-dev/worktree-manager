@@ -475,6 +475,9 @@ func (m *Manager) reconcileRepositoryPath(repoPath string) error {
 		return fmt.Errorf("list git worktrees: %w", err)
 	}
 	for _, gitWT := range worktrees {
+		if gitWT.Prunable {
+			continue
+		}
 		path, err := filepath.Abs(gitWT.Path)
 		if err != nil || !m.isManagerPoolPath(repo.Root, path) {
 			continue
@@ -547,7 +550,8 @@ type DoctorResult struct {
 
 // Doctor repairs legacy branch ownership records created before branch names
 // became independent of pool folder names. It also reconciles the database
-// with the branch currently checked out in each worktree.
+// with the branch currently checked out in each worktree and recovers valid,
+// clean detached BROKEN worktrees.
 func (m *Manager) Doctor() (*DoctorResult, error) {
 	repos, err := m.db.ListAllRepositories()
 	if err != nil {
@@ -562,6 +566,26 @@ func (m *Manager) Doctor() (*DoctorResult, error) {
 		}
 		for _, wt := range wts {
 			result.Checked++
+			if wt.Status == db.StatusBroken {
+				if err := m.recoverBrokenWorktree(r, wt); err != nil {
+					result.Issues = append(result.Issues, fmt.Sprintf("%s: %v", wt.Path, err))
+					continue
+				}
+				result.Repaired++
+				continue
+			}
+
+			_, issues, err := m.inspectWorktree(gr, wt.Path)
+			if err != nil {
+				result.Issues = append(result.Issues, fmt.Sprintf("%s: inspect worktree: %v", wt.Path, err))
+				continue
+			}
+			if len(issues) > 0 {
+				for _, issue := range issues {
+					result.Issues = append(result.Issues, fmt.Sprintf("%s: %s", wt.Path, issue))
+				}
+				continue
+			}
 			actual, err := gr.CurrentBranch(wt.Path)
 			if err != nil {
 				result.Issues = append(result.Issues, fmt.Sprintf("%s: read branch: %v", wt.Path, err))
@@ -569,8 +593,7 @@ func (m *Manager) Doctor() (*DoctorResult, error) {
 			}
 
 			// Released worktrees are intentionally detached at the default
-			// branch. A failed release can also leave a BROKEN worktree
-			// detached, so there is no branch to rename when actual is empty.
+			// branch, so there is no branch to rename when actual is empty.
 			if actual == "" {
 				continue
 			}
@@ -620,6 +643,152 @@ func (m *Manager) Doctor() (*DoctorResult, error) {
 	return result, nil
 }
 
+// recoverBrokenWorktree returns a clean, detached BROKEN worktree to the
+// pool. It is intentionally conservative: any stale metadata, missing
+// worktree marker, attached checkout, or dirty state requires manual review.
+func (m *Manager) recoverBrokenWorktree(r *db.Repository, wt *db.Worktree) error {
+	gr := &gitops.Repo{Root: r.RootPath}
+	_, issues, err := m.inspectWorktree(gr, wt.Path)
+	if err != nil {
+		return fmt.Errorf("inspect worktree: %w", err)
+	}
+	if len(issues) > 0 {
+		return errors.New(strings.Join(issues, "; "))
+	}
+
+	branch, err := gr.CurrentBranch(wt.Path)
+	if err != nil {
+		return fmt.Errorf("read branch: %w", err)
+	}
+	if branch != "" {
+		return fmt.Errorf("BROKEN worktree is attached to branch %q; manual recovery required", branch)
+	}
+	clean, err := gr.IsClean(wt.Path)
+	if err != nil {
+		return fmt.Errorf("check clean state: %w", err)
+	}
+	if !clean {
+		return errors.New("BROKEN worktree is dirty; manual recovery required")
+	}
+
+	baseCommit, err := m.resetDetachedWorktree(gr, wt.Path, r.DefaultBranch)
+	if err != nil {
+		return fmt.Errorf("recover detached worktree: %w", err)
+	}
+	if wt.BranchName != "" && wt.BranchName != r.DefaultBranch {
+		if err := gr.DeleteBranchIfExists(wt.BranchName); err != nil {
+			return fmt.Errorf("delete recovered worktree branch %q: %w", wt.BranchName, err)
+		}
+	}
+
+	tx, err := m.db.BeginTx()
+	if err != nil {
+		return fmt.Errorf("begin recovery transaction: %w", err)
+	}
+	defer tx.Rollback()
+	if err := m.db.UpdateWorktreePathBranch(tx, wt.ID, wt.Path, r.DefaultBranch); err != nil {
+		return fmt.Errorf("record default branch: %w", err)
+	}
+	if err := m.db.UpdateBaseCommit(tx, wt.ID, baseCommit); err != nil {
+		return fmt.Errorf("record default branch commit: %w", err)
+	}
+	if err := m.db.MarkFree(tx, wt.ID); err != nil {
+		return fmt.Errorf("mark recovered worktree free: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit recovery: %w", err)
+	}
+	return nil
+}
+
+// resetDetachedWorktree refreshes a worktree to the repository's latest
+// default branch and validates the detached result before it can be reused.
+func (m *Manager) resetDetachedWorktree(gr *gitops.Repo, path, defaultBranch string) (string, error) {
+	target := defaultBranch
+	if gr.HasRemote() {
+		if err := gr.FetchOrigin(); err != nil {
+			return "", fmt.Errorf("fetch origin: %w", err)
+		}
+		target = "origin/" + defaultBranch
+	}
+	if err := gr.HardReset(path, target); err != nil {
+		return "", fmt.Errorf("reset worktree: %w", err)
+	}
+	if err := gr.SyncSubmodules(path); err != nil {
+		return "", fmt.Errorf("sync submodules: %w", err)
+	}
+	if err := gr.Clean(path); err != nil {
+		return "", fmt.Errorf("clean worktree: %w", err)
+	}
+	if err := gr.CheckoutDetached(path, target); err != nil {
+		return "", fmt.Errorf("detach worktree at default branch: %w", err)
+	}
+
+	baseCommit, err := gr.RevParse(target)
+	if err != nil {
+		return "", fmt.Errorf("read default branch commit: %w", err)
+	}
+	headCommit, err := gr.WorktreeRevParse(path, "HEAD")
+	if err != nil {
+		return "", fmt.Errorf("read worktree commit: %w", err)
+	}
+	if headCommit != baseCommit {
+		return "", fmt.Errorf("worktree is at %s, want %s", headCommit, baseCommit)
+	}
+	clean, err := gr.IsClean(path)
+	if err != nil {
+		return "", fmt.Errorf("check worktree status: %w", err)
+	}
+	if !clean {
+		return "", errors.New("worktree is not clean")
+	}
+	return baseCommit, nil
+}
+
+// inspectWorktree identifies Git metadata and linked-worktree marker problems
+// without mutating either Git or the manager database.
+func (m *Manager) inspectWorktree(gr *gitops.Repo, path string) (*gitops.Worktree, []string, error) {
+	entry, err := gr.FindWorktree(path)
+	if err != nil {
+		return nil, nil, err
+	}
+	var issues []string
+	if entry == nil {
+		issues = append(issues, "stale Git metadata: worktree path is not registered in Git")
+	} else if entry.Prunable {
+		reason := entry.PrunableReason
+		if reason == "" {
+			reason = "Git marks the entry prunable"
+		}
+		issues = append(issues, "stale Git metadata: "+reason)
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			issues = append(issues, "worktree path missing")
+		} else {
+			issues = append(issues, fmt.Sprintf("read worktree path: %v", err))
+		}
+		return entry, issues, nil
+	}
+	if !info.IsDir() {
+		issues = append(issues, "worktree path is not a directory")
+		return entry, issues, nil
+	}
+	marker, err := os.Stat(filepath.Join(path, ".git"))
+	if err != nil {
+		if os.IsNotExist(err) {
+			issues = append(issues, "missing worktree .git marker")
+		} else {
+			issues = append(issues, fmt.Sprintf("read worktree .git marker: %v", err))
+		}
+	} else if marker.IsDir() {
+		issues = append(issues, "worktree .git marker is a directory")
+	}
+	return entry, issues, nil
+}
+
 // Verify checks that all registered worktrees are consistent with the actual
 // git state. It does not modify state; it returns a list of issues per
 // worktree.
@@ -637,21 +806,40 @@ func (m *Manager) Verify() ([]VerifyResult, error) {
 		}
 		for _, w := range wts {
 			vr := VerifyResult{Path: w.Path, BranchName: w.BranchName, Status: w.Status}
-			exists, err := gr.WorktreeExists(w.Path)
+			entry, metadataIssues, err := m.inspectWorktree(gr, w.Path)
 			if err != nil {
 				vr.Issues = append(vr.Issues, fmt.Sprintf("git error: %v", err))
 			} else {
-				vr.Exists = exists
-				if !exists {
-					vr.Issues = append(vr.Issues, "worktree path not registered in git")
-				}
-			}
-			if _, err := os.Stat(w.Path); err != nil {
-				vr.Issues = append(vr.Issues, fmt.Sprintf("path missing: %v", err))
+				vr.Issues = append(vr.Issues, metadataIssues...)
+				vr.Exists = entry != nil && !entry.Prunable
 			}
 			// Check status consistency.
 			if w.Status == db.StatusAllocated && w.BranchName == "" {
 				vr.Issues = append(vr.Issues, "allocated but no branch name")
+			}
+			if vr.Exists {
+				clean, cleanErr := gr.IsClean(w.Path)
+				if cleanErr != nil {
+					vr.Issues = append(vr.Issues, fmt.Sprintf("check worktree status: %v", cleanErr))
+				} else {
+					vr.Clean = clean
+				}
+			}
+			if w.Status == db.StatusBroken {
+				if !vr.Exists {
+					vr.Issues = append(vr.Issues, "BROKEN worktree requires manual recovery")
+				} else {
+					actual, branchErr := gr.CurrentBranch(w.Path)
+					if branchErr != nil {
+						vr.Issues = append(vr.Issues, fmt.Sprintf("inspect BROKEN worktree: %v", branchErr))
+					} else if actual != "" {
+						vr.Issues = append(vr.Issues, fmt.Sprintf("BROKEN worktree is attached to branch %q; manual recovery required", actual))
+					} else if vr.Clean {
+						vr.Issues = append(vr.Issues, "recoverable BROKEN worktree: clean detached checkout; run doctor")
+					} else {
+						vr.Issues = append(vr.Issues, "BROKEN worktree is dirty; manual recovery required")
+					}
+				}
 			}
 			results = append(results, vr)
 		}

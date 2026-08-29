@@ -149,3 +149,48 @@ func TestWorktreeExists(t *testing.T) {
 		t.Fatal("expected not exists")
 	}
 }
+
+func TestListWorktreesReportsPrunableEntries(t *testing.T) {
+	bare := initBareRepo(t)
+	work := cloneWorking(t, bare)
+	repo, _ := Resolve(work)
+	wtPath := filepath.Join(work, ".worktree-manager", "wt1")
+	if err := repo.AddWorktree(wtPath, "wt1-branch", "main"); err != nil {
+		t.Fatalf("AddWorktree: %v", err)
+	}
+	if err := os.Remove(filepath.Join(wtPath, ".git")); err != nil {
+		t.Fatalf("remove worktree marker: %v", err)
+	}
+
+	worktrees, err := repo.ListWorktrees()
+	if err != nil {
+		t.Fatalf("ListWorktrees: %v", err)
+	}
+	wantPath, err := filepath.EvalSymlinks(wtPath)
+	if err != nil {
+		t.Fatalf("resolve worktree path: %v", err)
+	}
+	var found *Worktree
+	for i := range worktrees {
+		if worktrees[i].Path == wantPath {
+			found = &worktrees[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatalf("worktree %q not found in %v", wtPath, worktrees)
+	}
+	if !found.Prunable {
+		t.Fatalf("expected prunable worktree, got %+v", found)
+	}
+	if found.PrunableReason == "" {
+		t.Fatal("expected prunable reason")
+	}
+	exists, err := repo.WorktreeExists(wtPath)
+	if err != nil {
+		t.Fatalf("WorktreeExists: %v", err)
+	}
+	if exists {
+		t.Fatal("expected prunable worktree not to count as existing")
+	}
+}

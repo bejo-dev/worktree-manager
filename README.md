@@ -24,6 +24,13 @@ database at `/private/tmp/worktree-manager/state.db`, so the agent never has to 
 worktree state itself. When no branch name is supplied, a short random
 three-word name is generated for the branch and internal ownership label.
 
+Because linked worktrees use shared Git metadata in the primary repository,
+invoke `acquire` and `release` with elevated filesystem permission from the
+initial command. Use that same permission for `doctor` when it recovers a
+worktree, and for Git staging, committing, and other Git operations inside an
+acquired worktree. Do not retry an unprivileged command first. In a Codex
+sandbox, request `require_escalated` before running the command.
+
 ## Install
 
 ### From source (requires Go 1.22+)
@@ -69,7 +76,7 @@ no CGO or system SQLite is required).
 
 ### `-v, --version`
 
-Prints the worktree-manager version (`2.2.0`).
+Prints the worktree-manager version (`2.2.1`).
 
 ### `-d, --database <path>`
 
@@ -247,15 +254,21 @@ FREE       -                    /path/to/repo  /private/tmp/worktree-manager/rep
 
 Verifies that every registered worktree is consistent with the actual git
 state (worktree exists on disk, registered in `git worktree list`, status is
-sane). Issues are printed to stderr; the command exits non-zero if any
-issues are found.
+sane). Issues distinguish stale Git metadata, missing linked-worktree `.git`
+markers, and clean detached `BROKEN` worktrees that `doctor` can recover.
+Issues are printed to stderr; the command exits non-zero if any issues are
+found.
 
 ### `doctor`
 
 Repairs state created by older versions after the branch-name change. It
 reconciles recorded branches with Git, migrates legacy `wm/...` branches to
 their recorded branch names, and generates names for older taskless allocated
-worktrees. It reports any worktree it could not repair and exits non-zero.
+worktrees. It also fetches, resets, cleans, detaches, validates, and returns a
+`BROKEN` worktree to `FREE` when it is a valid, clean detached checkout.
+Stale Git metadata, missing `.git` markers, dirty checkouts, and attached
+`BROKEN` worktrees require manual review. It reports any worktree it could not
+repair and exits non-zero.
 
 ## State
 
@@ -302,7 +315,8 @@ new branch is created for the next task.
 - Never allocates the same worktree twice (state changes happen inside SQLite
   transactions).
 - If a git operation fails, the affected worktree is marked `BROKEN` and is
-  not handed out again until repaired.
+  not handed out again until repaired. `doctor` can safely recover only a
+  valid, clean detached checkout.
 - Logs go to stderr; stdout contains only machine-readable output.
 
 ## Development
