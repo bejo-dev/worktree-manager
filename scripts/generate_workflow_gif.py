@@ -263,7 +263,7 @@ def terminal_shell(phase: str, value: int, frame: int) -> str:
             ("✓", "reset --hard origin/main", GREEN),
             ("✓", "cleaned files and submodules", GREEN),
             ("✓", "detached and verified clean", GREEN),
-            ("✓", "released", CYAN),
+            ("#", "you give the worktree back", CYAN),
         ]
         for index, (mark, label, color) in enumerate(process_lines[:value]):
             row_y = line_y + 53 + index * 32
@@ -277,7 +277,7 @@ def terminal_shell(phase: str, value: int, frame: int) -> str:
         result += text(tx, line_y + 57, "FREE      -       .../pool-app-1-1", 14, GREEN)
         result += text(tx, line_y + 91, "FREE      -       .../pool-app-1-2", 14, GREEN)
         result += line(tx, line_y + 120, x + w - 27, line_y + 120, BORDER, 1)
-        result += text(tx, line_y + 159, "pool is clean and ready for the next task", 15, WHITE)
+        result += text(tx, line_y + 159, "# worktree is ready for its next task", 15, CYAN)
         result += pill(tx, line_y + 194, "REPEAT", "#17364d", CYAN, 88, "#285d78")
         return result
 
@@ -390,7 +390,7 @@ def build_frames() -> list[str]:
         add_main("release_process", visible, 4)
     add_main("release_process", 5, 8)
 
-    add_main("ready", 0, 15)
+    add_main("ready", 0, 24)
     return frames
 
 
