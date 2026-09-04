@@ -151,9 +151,8 @@ def header() -> str:
 def timeline(active: str | None) -> str:
     steps = [
         (90, "ACQUIRE", "acquire"),
-        (350, "WORK", "work"),
-        (610, "CHECK", "check"),
-        (870, "RELEASE", "release"),
+        (430, "WORK", "work"),
+        (790, "RELEASE", "release"),
         (1110, "READY", "ready"),
     ]
     result = line(90, 113, 1110, 113, BORDER, 2)
@@ -244,26 +243,6 @@ def terminal_shell(phase: str, value: int, frame: int) -> str:
             result += pill(tx, line_y + 306, "READY TO RELEASE", "#123d45", GREEN, 142, "#1e6870")
         return result
 
-    if phase == "list":
-        result += text(tx, line_y, "$", 17, GREEN)
-        result += text(tx + 21, line_y, "worktree-manager list", 17, WHITE)
-        table_y = line_y + 50
-        result += text(tx, table_y, "STATUS     BRANCH                 PATH", 12, DIM)
-        result += line(tx, table_y + 11, x + w - 27, table_y + 11, BORDER, 1)
-        rows = [
-            ("ALLOCATED", "BenE/add-unit-menu", ".../pool-app-1-1", GREEN),
-            ("FREE", "-", ".../pool-app-1-2", MUTED),
-        ]
-        for index, (status, branch, path, color) in enumerate(rows):
-            row_y = table_y + 43 + index * 38
-            result += text(tx, row_y, status, 12, color, MONO, "700")
-            result += text(tx + 106, row_y, branch, 12, WHITE)
-            result += text(tx + 330, row_y, path, 12, MUTED)
-        result += pill(tx, table_y + 128, "STATE IS EXPLICIT", "#1d2941", BLUE, 145, "#33496d")
-        result += text(tx, table_y + 184, "One allocated slot, one free slot,", 14, MUTED)
-        result += text(tx, table_y + 208, "no manual bookkeeping required.", 14, MUTED)
-        return result
-
     if phase == "release_type":
         release_command = 'worktree-manager release "$WT"\u200b'
         shown = release_command[:value]
@@ -334,7 +313,7 @@ def pool_panel(phase: str, frame: int) -> str:
         result += text(x + 25, y + 464, "before the agent starts.", 13, MUTED, SANS)
         return result
 
-    allocated = phase in {"acquire_done", "work", "list", "release_type", "release_process"}
+    allocated = phase in {"acquire_done", "work", "release_type", "release_process"}
     releasing = phase in {"release_type", "release_process"}
     ready = phase == "ready"
     result += line(x + 44, y + 118, x + 44, y + 334, BORDER, 2)
@@ -348,7 +327,7 @@ def pool_panel(phase: str, frame: int) -> str:
     if phase == "acquire_done":
         result += pill(x + 25, y + 391, "ALLOCATED", "#123d45", GREEN, 104, "#1e6870")
         result += text(x + 25, y + 443, "branch: BenE/add-unit-menu", 12, MUTED, MONO)
-    elif phase in {"work", "list"}:
+    elif phase == "work":
         result += pill(x + 25, y + 391, "AGENT WORKING", "#17364d", CYAN, 130, "#285d78")
         result += text(x + 25, y + 443, "changes stay out of main", 13, MUTED, SANS)
     elif releasing:
@@ -364,7 +343,7 @@ def pool_panel(phase: str, frame: int) -> str:
 def main_frame(phase: str, value: int, frame: int) -> str:
     result = background()
     result += header()
-    result += timeline({"acquire_type": "acquire", "acquire_process": "acquire", "acquire_done": "acquire", "work": "work", "list": "check", "release_type": "release", "release_process": "release", "ready": "ready"}.get(phase))
+    result += timeline({"acquire_type": "acquire", "acquire_process": "acquire", "acquire_done": "acquire", "work": "work", "release_type": "release", "release_process": "release", "ready": "ready"}.get(phase))
     result += terminal_shell(phase, value, frame)
     result += pool_panel(phase, frame)
     return result
@@ -402,8 +381,6 @@ def build_frames() -> list[str]:
     work_holds = [2, 2, 3, 8, 18, 8, 12, 8, 20]
     for visible, hold in enumerate(work_holds, start=1):
         add_main("work", visible, hold)
-
-    add_main("list", 0, 10)
 
     release_command_length = len('worktree-manager release "$WT"\u200b')
     for position in range(0, release_command_length + 1, 3):
