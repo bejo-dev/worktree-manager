@@ -16,7 +16,7 @@ HEIGHT = 700
 BG = "#0b1220"
 SURFACE = "#111c30"
 SURFACE_ALT = "#16243c"
-TERMINAL = "#08111f"
+TERMINAL = "#050b16"
 BORDER = "#263854"
 WHITE = "#f8fafc"
 MUTED = "#91a4bf"
@@ -217,6 +217,7 @@ def terminal_shell(phase: str, value: int, frame: int) -> str:
             result += text(tx + 22, path_y + 10, "/private/tmp/worktree-manager/repo-app/pool-app-1-1", 14, WHITE)
             result += pill(tx, path_y + 29, "ALLOCATED", "#123d45", GREEN, 98, "#1e6870")
             result += text(tx + 113, path_y + 48, "branch: BenE/add-unit-menu", 13, MUTED)
+            result += text(tx, path_y + 80, "# you get an up to date worktree path", 14, CYAN)
         return result
 
     if phase == "work":
@@ -396,7 +397,7 @@ def build_frames() -> list[str]:
 
     for visible in range(1, 5):
         add_main("acquire_process", visible, 2)
-    add_main("acquire_done", 0, 8)
+    add_main("acquire_done", 0, 14)
 
     work_holds = [2, 2, 3, 8, 18, 8, 12, 8, 20]
     for visible, hold in enumerate(work_holds, start=1):
