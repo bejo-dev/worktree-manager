@@ -224,25 +224,23 @@ def terminal_shell(phase: str, value: int, frame: int) -> str:
             ("$", "cd /private/tmp/worktree-manager/repo-app/pool-app-1-1", WHITE),
             ("$", "git status --short", WHITE),
             ("✓", "clean checkout  /  branch: BenE/add-unit-menu", GREEN),
-            ("$", "$EDITOR internal/search/search.go", WHITE),
-            ("•", "agent implements the task in isolation", CYAN),
-            ("$", "git diff --stat", WHITE),
-            ("•", "2 files changed  /  48 insertions(+)  /  tests next", CYAN),
-            ("$", "go test ./...", WHITE),
-            ("✓", "ok   github.com/acme/app/...   0.42s", GREEN),
+            ("$", "vim internal/search/search.go", WHITE),
+            ("#", "you do your changes", CYAN),
+            ("$", 'git commit -am "Add search support"\u200b', WHITE),
+            ("✓", "[BenE/add-unit-menu 7c2a1d] Add search support", GREEN),
             ("$", "git push -u origin BenE/add-unit-menu", WHITE),
             ("✓", "pushed BenE/add-unit-menu to origin", GREEN),
         ]
         max_lines = min(len(stages), value)
         for index, (mark, label, color) in enumerate(stages[:max_lines]):
-            row_y = line_y + index * 29
+            row_y = line_y + index * 32
             result += text(tx, row_y, mark, 16, GREEN if mark == "$" else color, MONO, "700")
             result += text(tx + 22, row_y, label, 14, color)
         if value >= 1 and value < len(stages):
             last_label = stages[value - 1][1]
-            result += cursor(tx + 22 + len(last_label) * 8.45, line_y + (value - 1) * 29, 8, 18, frame % 2 == 0)
+            result += cursor(tx + 22 + len(last_label) * 8.45, line_y + (value - 1) * 32, 8, 18, frame % 2 == 0)
         if value >= len(stages):
-            result += pill(tx, line_y + 354, "READY TO RELEASE", "#123d45", GREEN, 142, "#1e6870")
+            result += pill(tx, line_y + 306, "READY TO RELEASE", "#123d45", GREEN, 142, "#1e6870")
         return result
 
     if phase == "list":
@@ -266,7 +264,7 @@ def terminal_shell(phase: str, value: int, frame: int) -> str:
         return result
 
     if phase == "release_type":
-        release_command = 'worktree-manager release "$WT"'
+        release_command = 'worktree-manager release "$WT"\u200b'
         shown = release_command[:value]
         result += text(tx, line_y, "$", 17, GREEN)
         result += text(tx + 21, line_y, shown, 17, WHITE)
@@ -277,7 +275,7 @@ def terminal_shell(phase: str, value: int, frame: int) -> str:
         return result
 
     if phase == "release_process":
-        release_command = 'worktree-manager release "$WT"'
+        release_command = 'worktree-manager release "$WT"\u200b'
         result += text(tx, line_y, "$", 17, GREEN)
         result += text(tx + 21, line_y, release_command, 17, WHITE)
         process_lines = [
@@ -400,13 +398,13 @@ def build_frames() -> list[str]:
         add_main("acquire_process", visible, 2)
     add_main("acquire_done", 0, 8)
 
-    work_holds = [2, 2, 3, 8, 12, 5, 10, 4, 8, 7, 12]
+    work_holds = [2, 2, 3, 8, 18, 8, 12, 8, 20]
     for visible, hold in enumerate(work_holds, start=1):
         add_main("work", visible, hold)
 
     add_main("list", 0, 10)
 
-    release_command_length = len('worktree-manager release "$WT"')
+    release_command_length = len('worktree-manager release "$WT"\u200b')
     for position in range(0, release_command_length + 1, 3):
         add_main("release_type", min(position, release_command_length), 1)
     add_main("release_type", release_command_length, 4)
