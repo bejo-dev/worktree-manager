@@ -3,6 +3,10 @@
 A standalone CLI binary that manages a reusable pool of git worktrees for
 autonomous coding agents.
 
+![Typical worktree-manager workflow](docs/workflow.gif)
+
+> The animation is a visual dramatization, not a live recording.
+
 The agent workflow:
 
 1. Before starting work:
